@@ -1,0 +1,96 @@
+name: build
+
+on:
+  push:
+    branches:    
+      - build
+jobs:
+  build:
+
+    env:
+      BUILD_TYPE: Release
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Prepare
+      run: |
+        sudo apt-get update
+        sudo apt-get install libusb-1.0-0-dev libpulse-dev locate autogen
+
+    - name: Checkout
+      uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9
+
+    - name: Configure
+      run: |
+        mkdir dependencies
+        mkdir local
+        cd dependencies
+        git clone -b v1.6.0 https://github.com/jgaeddert/liquid-dsp.git
+        cd liquid-dsp
+        ./bootstrap.sh
+        ./configure --prefix=$PWD/../../local
+        make
+        make install
+        cd ..
+
+        git clone -b soapy-sdr-0.8.1 https://github.com/pothosware/SoapySDR.git
+        cd SoapySDR
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_INSTALL_PREFIX=$PWD/../../../local ..
+        make
+        make install
+        cd ../..
+
+        git clone -b v0.8.0 https://github.com/librtlsdr/librtlsdr.git
+        cd librtlsdr
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DDETACH_KERNEL_DRIVER=ON -DINSTALL_UDEV_RULES=ON -DCMAKE_INSTALL_PREFIX=$PWD/../../../local ..
+        make
+        sudo make install
+        cd ../..
+
+        git clone -b soapy-rtl-sdr-0.3.3 https://github.com/pothosware/SoapyRTLSDR.git
+        cd SoapyRTLSDR
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_MODULE_PATH=$PWD/../../../local/lib/pkgconfig -DCMAKE_INSTALL_PREFIX=$PWD/../../../local ..
+        make
+        make install
+        cd ../..
+
+        git clone https://github.com/thestk/rtaudio.git -b 6.0.0
+        cd rtaudio
+        ./autogen.sh
+        ./configure --prefix=$PWD/../../local
+        make
+        make check
+        make install
+        cd ..
+
+        git clone https://github.com/nyorain/dlg.git -b v0.3
+
+        cd ..
+
+        export SOAPY_SDR_PLUGIN_PATH=$PWD/local/lib/SoapySDR/modules0.8
+        export LD_LIBRARY_PATH=$PWD/local/lib/:$LD_LIBRARY_PATH
+
+        sudo ldconfig
+        sudo updatedb
+      
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+        make
+
+    - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
+      with:
+        name: binaries
+        path: |
+          build/sdr_pmr446
+
