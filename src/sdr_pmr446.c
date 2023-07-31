@@ -67,7 +67,7 @@ typedef struct
     msresamp_crcf resampler;
     nco_crcf nco;
     firpfbch_crcf channelizer;
-    freqdem fm_dems[SDR_NUM_CHANNELS];
+    freqdem fm_demod;
     firfilt_rrrf ctcss_filt;
     firfilt_rrrf audio_filt;
     firdecim_rrrf ctcss_decim;
@@ -430,11 +430,8 @@ static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
     chain->channelizer = firpfbch_crcf_create_kaiser(LIQUID_ANALYZER, SDR_NUM_CHANNELS, 13, 80.0);
     log_assert(chain->channelizer);
 
-    for (size_t i = 0; i < SDR_NUM_CHANNELS; i++)
-    {
-        chain->fm_dems[i] = freqdem_create(0.5f);
-        log_assert(chain->fm_dems[i]);
-    }
+    chain->fm_demod = freqdem_create(0.5f);
+    log_assert(chain->fm_demod);
 
     chain->ctcss_filt = firfilt_rrrf_create((float *)hp_audio_taps, HP_AUDIO_FILT_TAPS);
     log_assert(chain->ctcss_filt);
@@ -499,13 +496,8 @@ static void destroy_liquid(proc_chain_t *chain)
     log_assert(err == LIQUID_OK);
     err = firfilt_rrrf_destroy(chain->ctcss_filt);
     log_assert(err == LIQUID_OK);
-
-    for (size_t i = 0; i < SDR_NUM_CHANNELS; i++)
-    {
-        err = freqdem_destroy(chain->fm_dems[i]);
-        log_assert(err == LIQUID_OK);
-    }
-
+    err = freqdem_destroy(chain->fm_demod);
+    log_assert(err == LIQUID_OK);
     err = firpfbch_crcf_destroy(chain->channelizer);
     log_assert(err == LIQUID_OK);
     err = nco_crcf_destroy(chain->nco);
@@ -932,6 +924,7 @@ int main(int argc, char *argv[])
                 chain->active_chan = -1;
                 chain->state = proc_scanning;
                 spgramf_reset(chain->ctcss_spgram);
+                freqdem_reset(chain->fm_demod);
             }
         }
         break;
@@ -945,7 +938,7 @@ int main(int argc, char *argv[])
         {
             if (chain->active_chan == i)
             {
-                freqdem_demodulate_block(chain->fm_dems[chain->active_chan], chan_bufs[i], ns, fm_out_buf);
+                freqdem_demodulate_block(chain->fm_demod, chan_bufs[i], ns, fm_out_buf);
                 ctcss_execute(chain, fm_out_buf, ns);
                 firfilt_rrrf_execute_block(chain->ctcss_filt, fm_out_buf, ns, fm_out_buf);
                 for (size_t k = 0; k < ns; k++)
