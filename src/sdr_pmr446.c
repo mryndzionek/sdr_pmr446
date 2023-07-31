@@ -439,9 +439,9 @@ static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
     chain->audio_filt = firfilt_rrrf_create((float *)lp_audio_taps, LP_AUDIO_FILT_TAPS);
     log_assert(chain->audio_filt);
 
-    chain->deemph = iirfilt_rrrf_create_lowpass(2, 2000.0 / AUDIO_SAMPLERATE);
-    // chain->deemph = iirfilt_rrrf_create((float[]){0.558390545416219, 0.558390545416219}, 2,
-    //                                     (float[]){1.0, 0.11678109083243816}, 2);
+    // 50us tau
+    chain->deemph = iirfilt_rrrf_create((float[]){0.507301437230636, 0.507301437230636}, 2,
+                                        (float[]){1.0, 0.014602874461272194}, 2);
     log_assert(chain->deemph);
     iirfilt_rrrf_print(chain->deemph);
 
