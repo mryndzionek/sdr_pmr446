@@ -451,7 +451,7 @@ static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
     chain->resamp_buf = cbuffercf_create(resamp_buf_size);
     log_assert(chain->resamp_buf);
 
-    chain->audio_buf = cbufferf_create(AUDIO_SAMPLERATE);
+    chain->audio_buf = cbufferf_create(AUDIO_SAMPLERATE / 3);
     log_assert(chain->audio_buf);
 
     chain->ctcss_decim = firdecim_rrrf_create_kaiser(CTCSS_DECIM, 8, 60.0f);
@@ -526,7 +526,8 @@ audio_cb(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames,
     float *rp;
 
     pthread_mutex_lock(&lock);
-    cbufferf_read(inBuffer, nBufferFrames, &rp, &num_read);
+    liquid_error_code err = cbufferf_read(inBuffer, nBufferFrames, &rp, &num_read);
+    log_assert(err == LIQUID_OK);
     for (size_t i = 0; i < nBufferFrames; i++)
     {
         if (i < num_read)
@@ -538,7 +539,7 @@ audio_cb(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames,
             buffer[i] = 0.0;
         }
     }
-    liquid_error_code err = cbufferf_release(inBuffer, num_read);
+    err = cbufferf_release(inBuffer, num_read);
     log_assert(err == LIQUID_OK);
     pthread_mutex_unlock(&lock);
 
@@ -973,6 +974,18 @@ int main(int argc, char *argv[])
             printf("%s\r", footer);
             fflush(stdout);
         }
+#ifndef NDEBUG
+        if (chain->args.waterfall == 0)
+        {
+            pthread_mutex_lock(&lock);
+            unsigned int s = cbufferf_size(chain->audio_buf);
+            pthread_mutex_unlock(&lock);
+            if (s > 0)
+            {
+                LOG(DEBUG, "%d samples in audio buffer (%3.1f%% used)", s, 100 * (float)s / cbufferf_max_size(chain->audio_buf));
+            }
+        }
+#endif
     }
 
     destroy_rtaudio(chain);
