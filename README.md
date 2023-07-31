@@ -1,5 +1,7 @@
 ## sdr_pmr446
 
+![block](diagrams/pmr446_scanner.png)
+
 Simple PMR446 scanner. Doesn't jump between channels - PMR is narrow
 enough (200kHz) to fit most SDRs bandwidths, so only resampling
 is needed and then polyphase filterbank channelizer follows.
@@ -16,7 +18,4 @@ work with other supported by SoapySDR receivers.
 # Building
 
 Look at [build.yml](.github/workflows/build.yml) for details.
-
-
-
 
