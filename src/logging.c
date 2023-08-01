@@ -8,7 +8,7 @@ static void *old_data;
 static void custom_handler(const struct dlg_origin *origin, const char *string, void *data)
 {
     (void)data;
-    dlg_generic_outputf_stream(stdout, "[%h:%m {%t} %f] %s%c\n", origin, string, dlg_default_output_styles, false);
+    dlg_generic_outputf_stream(stderr, "[%h:%m {%t} %f] %s%c\n", origin, string, dlg_default_output_styles, false);
 }
 
 void logging_init(void)
