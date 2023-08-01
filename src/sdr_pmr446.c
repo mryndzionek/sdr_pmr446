@@ -33,13 +33,17 @@
 #define SDR_RESAMPLERATE (200000UL)
 #define SDR_FREQUENCY (446.1e6)
 #define SDR_NUM_CHANNELS (16)
-#define SDR_DEFAULT_GAIN (42.0f)
-#define SDR_DEFAULT_SQUELCH_LEVEL (-5.0f)
+#define SDR_DEFAULT_GAIN (42.0)
+#define SDR_DEFAULT_AUDIO_GAIN (4.0)
+#define SDR_DEFAULT_SQUELCH_LEVEL (-5.0)
 
 #define HP_AUDIO_FILT_TAPS (297)
 #define LP_AUDIO_FILT_TAPS (103)
 
 #define CSAMPLE_SIZE sizeof(complex float)
+
+#define xstr(s) str(s)
+#define str(s) #s
 
 typedef enum
 {
@@ -152,7 +156,7 @@ static proc_chain_t g_chain = {
     .ctcss_freq = -1.0,
     .args = {
         .gain = SDR_DEFAULT_GAIN,
-        .audio_gain = 4.0f,
+        .audio_gain = SDR_DEFAULT_AUDIO_GAIN,
         .squelch_level = SDR_DEFAULT_SQUELCH_LEVEL,
         .waterfall = 0,
         .lowpass = false,
@@ -167,12 +171,12 @@ static char doc[] =
 static char args_doc[] = "";
 
 static struct argp_option options[] = {
-    {"gain", 'g', "G", 0, "The gain to set in the SDR receiver in [dB] (default: 42.0dB)"},
-    {"squelch", 's', "SQ", 0, "The squelch level in [dB] (default: -5.0dB)"},
+    {"gain", 'g', "G", 0, "The gain to set in the SDR receiver in [dB] (default: " xstr(SDR_DEFAULT_GAIN) ")"},
+    {"squelch", 's', "SQ", 0, "The squelch level in [dB] (default: " xstr(SDR_DEFAULT_SQUELCH_LEVEL) "dB)"},
     {"waterfall", 'w', "WT", 0, "If specified an ASCII waterfall is printed on the screen"},
     {"lowpass", 'l', 0, 0, "Turn on 4.5kHz lowpass audio filter (might reduce noise)"},
     {"mask", 'm', "CM", 0, "Channel mask e.g. 1,2,8-16 (only listen to channels 1,2 and 8 to 16)"},
-    {"audio-gain", 'a', "AG", 0, "The gain to set in the SDR receiver in (default: 4.0)"},
+    {"audio-gain", 'a', "AG", 0, "The gain to set in the SDR receiver in (default: " xstr(SDR_DEFAULT_AUDIO_GAIN) ")"},
     {0}};
 
 static struct argp argp = {options, parse_opt, args_doc, doc};
@@ -333,7 +337,7 @@ static float average_power(complex float const *data, size_t len)
     return 20 * log10f(a);
 }
 
-static bool init_soapy(proc_chain_t *chain, float gain)
+static bool init_soapy(proc_chain_t *chain)
 {
     int ret;
     size_t length;
@@ -378,7 +382,7 @@ static bool init_soapy(proc_chain_t *chain, float gain)
         log_assert(ret == 0);
         ret = SoapySDRDevice_setFrequency(chain->sdr, SOAPY_SDR_RX, 0, SDR_FREQUENCY, NULL);
         log_assert(ret == 0);
-        int err = SoapySDRDevice_setGain(chain->sdr, SOAPY_SDR_RX, 0, gain);
+        int err = SoapySDRDevice_setGain(chain->sdr, SOAPY_SDR_RX, 0, chain->args.gain);
         if (err != 0)
         {
             SoapySDRDevice_unmake(chain->sdr);
@@ -804,7 +808,7 @@ int main(int argc, char *argv[])
     ret = init_liquid(chain, chain->args.waterfall, res_size, chan_size);
     log_assert(ret);
 
-    ret = init_soapy(chain, chain->args.gain);
+    ret = init_soapy(chain);
     if (!ret)
     {
         exit(EXIT_FAILURE);
