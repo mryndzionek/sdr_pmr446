@@ -11,12 +11,13 @@
 #include <argp.h>
 
 #include <SoapySDR/Device.h>
-#include <SoapySDR/Formats.h>
 
 #include <liquid/liquid.h>
 
 #include <rtaudio/rtaudio_c.h>
 
+#include "sdr_pmr446.h"
+#include "shared.h"
 #include "logging.h"
 
 #define AUDIO_SAMPLERATE (12500UL)
@@ -29,7 +30,6 @@
 #define CTCSS_FREQ_TO_BIN(_freq) ((_freq / (CTCSS_FS / 2)) * ((CTCSS_FFT_SIZE / 2) - 1))
 
 #define SDR_INPUT_CHUNK (100000UL)
-#define SDR_SAMPLERATE (1000000UL)
 #define SDR_RESAMPLERATE (200000UL)
 #define SDR_FREQUENCY (446.1e6)
 #define SDR_NUM_CHANNELS (16)
@@ -44,49 +44,6 @@
 
 #define xstr(s) str(s)
 #define str(s) #s
-
-typedef enum
-{
-    proc_scanning = 0,
-    proc_tuned,
-} proc_chain_state_e;
-
-struct arguments
-{
-    char *args[1];
-    float gain;
-    float audio_gain;
-    float squelch_level;
-    size_t waterfall;
-    bool lowpass;
-    uint16_t channel_mask;
-};
-
-typedef struct
-{
-    SoapySDRDevice *sdr;
-    SoapySDRStream *rxStream;
-    rtaudio_t dac;
-    iirfilt_crcf dcblock;
-    msresamp_crcf resampler;
-    nco_crcf nco;
-    firpfbch_crcf channelizer;
-    freqdem fm_demod;
-    firfilt_rrrf ctcss_filt;
-    firfilt_rrrf audio_filt;
-    firdecim_rrrf ctcss_decim;
-    iirfilt_rrrf deemph;
-    cbufferf ctcss_buf;
-    cbuffercf resamp_buf;
-    cbufferf audio_buf;
-    spgramf ctcss_spgram;
-    asgramcf asgram;
-    proc_chain_state_e state;
-    struct arguments args;
-    int active_chan;
-    float rssi;
-    float ctcss_freq;
-} proc_chain_t;
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state);
 
@@ -155,6 +112,7 @@ static proc_chain_t g_chain = {
     .active_chan = -1,
     .ctcss_freq = -1.0,
     .args = {
+        .frequency = SDR_FREQUENCY,
         .gain = SDR_DEFAULT_GAIN,
         .audio_gain = SDR_DEFAULT_AUDIO_GAIN,
         .squelch_level = SDR_DEFAULT_SQUELCH_LEVEL,
@@ -335,85 +293,6 @@ static float average_power(complex float const *data, size_t len)
 
     a /= len;
     return 20 * log10f(a);
-}
-
-static bool init_soapy(proc_chain_t *chain)
-{
-    int ret;
-    size_t length;
-    char *driver_name = NULL;
-
-    SoapySDRKwargs *results = SoapySDRDevice_enumerate(NULL, &length);
-
-    for (size_t i = 0; i < length; i++)
-    {
-        LOG(INFO, "Found device #%d: ", (int)i);
-        for (size_t j = 0; j < results[i].size; j++)
-        {
-            LOG(INFO, "%s=%s, ", results[i].keys[j], results[i].vals[j]);
-            if (strncmp(results[i].keys[j], "driver", sizeof("driver")) == 0)
-            {
-                driver_name = results[i].vals[j];
-            }
-        }
-    }
-
-    if (driver_name)
-    {
-        LOG(INFO, "Using %s device", driver_name);
-
-        SoapySDRKwargs args = {0};
-        SoapySDRKwargs_set(&args, "driver", driver_name);
-        chain->sdr = SoapySDRDevice_make(&args);
-        log_assert(chain->sdr);
-        SoapySDRKwargs_clear(&args);
-
-        SoapySDRRange *ranges = SoapySDRDevice_getFrequencyRange(chain->sdr, SOAPY_SDR_RX, 0, &length);
-        LOG(INFO, "Rx freq ranges: ");
-        for (size_t i = 0; i < length; i++)
-            LOG(INFO, "[%g Hz -> %g Hz], ", ranges[i].minimum, ranges[i].maximum);
-        free(ranges);
-
-        size_t num_rxch = SoapySDRDevice_getNumChannels(chain->sdr, SOAPY_SDR_RX);
-        LOG(INFO, "Rx num channels: %lu", num_rxch);
-        log_assert(num_rxch == 1);
-
-        ret = SoapySDRDevice_setSampleRate(chain->sdr, SOAPY_SDR_RX, 0, SDR_SAMPLERATE);
-        log_assert(ret == 0);
-        ret = SoapySDRDevice_setFrequency(chain->sdr, SOAPY_SDR_RX, 0, SDR_FREQUENCY, NULL);
-        log_assert(ret == 0);
-        int err = SoapySDRDevice_setGain(chain->sdr, SOAPY_SDR_RX, 0, chain->args.gain);
-        if (err != 0)
-        {
-            SoapySDRDevice_unmake(chain->sdr);
-            return false;
-        }
-        chain->rxStream = SoapySDRDevice_setupStream(chain->sdr, SOAPY_SDR_RX, SOAPY_SDR_CF32, NULL, 0, NULL);
-        log_assert(ret == 0);
-        ret = SoapySDRDevice_activateStream(chain->sdr, chain->rxStream, 0, 0, 0);
-        log_assert(ret == 0);
-        SoapySDRKwargsList_clear(results, length);
-
-        return true;
-    }
-    else
-    {
-        LOG(ERROR, "No Soapy SDR device found");
-        SoapySDRKwargsList_clear(results, length);
-        return false;
-    }
-}
-
-static void destroy_soapy(proc_chain_t *chain)
-{
-    int ret;
-
-    ret = SoapySDRDevice_deactivateStream(chain->sdr, chain->rxStream, 0, 0);
-    log_assert(ret == 0);
-    ret = SoapySDRDevice_closeStream(chain->sdr, chain->rxStream);
-    log_assert(ret == 0);
-
-    SoapySDRDevice_unmake(chain->sdr);
 }
 
 static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
