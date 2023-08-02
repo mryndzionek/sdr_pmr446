@@ -21,4 +21,8 @@ add_executable(sdr_pmr446 src/sdr_pmr446.c
                           ${SRCS})
 target_link_libraries(sdr_pmr446 ${LIBS})
 
+add_executable(dsd_in src/dsd_in.c
+                      ${SRCS})
+target_link_libraries(dsd_in ${LIBS})
+
 

@@ -1,4 +1,4 @@
-## sdr_pmr446
+# sdr_pmr446
 
 ![block](diagrams/pmr446_scanner.png)
 
@@ -15,7 +15,16 @@ to interface to SDR hardware, so it all should
 work with other, supported by SoapySDR, receivers.
 
 
-# Building
+## Building
 
 Look at [build.yml](.github/workflows/build.yml) for details.
+
+## Other applications
+
+ - `dsd_in` - simple [DSD](https://github.com/szechyjs/dsd)
+    input signal processor
+
+    Replaces the normal combination of `rtl_fm` and `sox`
+    used to feed the signal into DSD while having better
+    processing characteristics.
 
