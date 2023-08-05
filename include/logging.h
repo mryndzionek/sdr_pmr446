@@ -4,7 +4,11 @@
 #include <dlg/dlg.h>
 #include <assert.h>
 
+#ifdef NDEBUG
+#define log_assert(x) (void)(x)
+#else
 #define log_assert(x) assert(x)
+#endif
 
 #define LOG_DEBUG dlg_debug
 #define LOG_INFO dlg_info

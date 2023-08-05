@@ -13,8 +13,6 @@ set(SRCS src/logging.c src/shared.c
 set(LIBS m dl pthread SoapySDR liquid rtaudio)
 
 add_compile_options(-Wno-deprecated-declarations
-                    -Wno-unused-but-set-variable
-                    -Wno-unused-variable
                     -Wall -Werror -fPIC)
 add_compile_definitions(DLG_LOG_LEVEL=dlg_level_info)
 
