@@ -43,7 +43,11 @@ struct _proc_chain_t
     firfilt_rrrf ctcss_filt;
     firfilt_rrrf audio_filt;
     firdecim_rrrf ctcss_decim;
+#ifdef APP_FIR_DEEMPH
+    firfilt_rrrf deemph;
+#else
     iirfilt_rrrf deemph;
+#endif
     cbufferf ctcss_buf;
     cbuffercf resamp_buf;
     cbufferf audio_buf;
