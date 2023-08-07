@@ -22,13 +22,6 @@
 
 #define AUDIO_SAMPLERATE (12500UL)
 
-#define CTCSS_DECIM (20) // 12.5kHz / 20 = 625Hz - just enough to keep CTCSS frequencies
-#define CTCSS_FFT_SIZE (2048)
-#define CTCSS_FS ((float)AUDIO_SAMPLERATE / CTCSS_DECIM)
-#define CTCSS_FREQ_START (size_t)(50.0f * (CTCSS_FFT_SIZE / 2) / ((float)AUDIO_SAMPLERATE / CTCSS_DECIM))
-#define CTCSS_BIN_TO_FREQ(_bin) (((float)_bin) / ((CTCSS_FFT_SIZE / 2) - 1)) * (CTCSS_FS / 2)
-#define CTCSS_FREQ_TO_BIN(_freq) ((_freq / (CTCSS_FS / 2)) * ((CTCSS_FFT_SIZE / 2) - 1))
-
 #define SDR_INPUT_CHUNK (100000UL)
 #define SDR_RESAMPLERATE (200000UL)
 #define SDR_FREQUENCY (446.1e6)
@@ -39,6 +32,7 @@
 
 #define HP_AUDIO_FILT_TAPS (297)
 #define LP_AUDIO_FILT_TAPS (103)
+#define LP_CTCSS_FILT_TAPS (315)
 #ifdef APP_FIR_DEEMPH
 #define DEEMPH_FILT_TAPS (101)
 #endif
@@ -90,6 +84,48 @@ static const float hp_audio_taps[HP_AUDIO_FILT_TAPS] = {
      0.00083344f,  0.00082539f,  0.00080927f,  0.00078620f,  0.00075554f,  0.00071739f,  0.00066745f,  0.00060070f,
      0.00050517f,  0.00036230f,  0.00013836f, -0.00022083f, -0.00080616f, -0.00176582f, -0.00334367f, -0.00593683f,
      0.00538494f};
+
+static const float lp_ctcss_taps[LP_CTCSS_FILT_TAPS] = {
+     0.00038320f, -0.00011305f, -0.00012338f, -0.00014737f, -0.00018267f, -0.00022715f, -0.00027926f, -0.00033722f,
+    -0.00039956f, -0.00046445f, -0.00053020f, -0.00059479f, -0.00065635f, -0.00071269f, -0.00076186f, -0.00080168f,
+    -0.00083033f, -0.00084585f, -0.00084684f, -0.00083182f, -0.00080005f, -0.00075082f, -0.00068425f, -0.00060057f,
+    -0.00050098f, -0.00038672f, -0.00026006f, -0.00012323f,  0.00002049f,  0.00016809f,  0.00031548f,  0.00045926f,
+     0.00059472f,  0.00071877f,  0.00082592f,  0.00091411f,  0.00097930f,  0.00101722f,  0.00102722f,  0.00100705f,
+     0.00095615f,  0.00087406f,  0.00076194f,  0.00062141f,  0.00045548f,  0.00026762f,  0.00006252f, -0.00015475f,
+    -0.00037816f, -0.00060149f, -0.00081796f, -0.00102086f, -0.00120334f, -0.00135902f, -0.00148182f, -0.00156652f,
+    -0.00160860f, -0.00160478f, -0.00155282f, -0.00145197f, -0.00130278f, -0.00110744f, -0.00086947f, -0.00059399f,
+    -0.00028736f,  0.00004263f,  0.00038735f,  0.00073703f,  0.00108150f,  0.00141031f,  0.00171235f,  0.00197792f,
+     0.00219690f,  0.00236041f,  0.00246099f,  0.00249268f,  0.00245122f,  0.00233426f,  0.00214169f,  0.00187568f,
+     0.00154069f,  0.00114347f,  0.00069296f,  0.00020012f, -0.00032232f, -0.00086011f, -0.00139787f, -0.00191947f,
+    -0.00240850f, -0.00284873f, -0.00322458f, -0.00352166f, -0.00372722f, -0.00383063f, -0.00382374f, -0.00370130f,
+    -0.00346122f, -0.00310482f, -0.00263693f, -0.00206588f, -0.00140347f, -0.00066488f,  0.00013189f,  0.00096590f,
+     0.00181446f,  0.00265292f,  0.00345569f,  0.00419719f,  0.00485188f,  0.00539560f,  0.00580603f,  0.00606361f,
+     0.00615207f,  0.00605907f,  0.00577681f,  0.00530250f,  0.00463867f,  0.00379341f,  0.00278041f,  0.00161893f,
+     0.00033355f, -0.00104613f, -0.00248609f, -0.00394840f, -0.00539211f, -0.00677404f, -0.00804980f, -0.00917473f,
+    -0.01010511f, -0.01079912f, -0.01121798f, -0.01132697f, -0.01109648f, -0.01050279f, -0.00952902f, -0.00816550f,
+    -0.00641057f, -0.00427066f, -0.00176054f,  0.00109668f,  0.00427014f,  0.00772106f,  0.01140390f,  0.01526701f,
+     0.01925338f,  0.02330199f,  0.02734877f,  0.03132814f,  0.03517413f,  0.03882184f,  0.04220876f,  0.04527613f,
+     0.04797019f,  0.05024329f,  0.05205499f,  0.05337284f,  0.05417318f,  0.05444157f,  0.05417318f,  0.05337284f,
+     0.05205499f,  0.05024329f,  0.04797019f,  0.04527613f,  0.04220876f,  0.03882184f,  0.03517413f,  0.03132814f,
+     0.02734877f,  0.02330199f,  0.01925338f,  0.01526701f,  0.01140390f,  0.00772106f,  0.00427014f,  0.00109668f,
+    -0.00176054f, -0.00427066f, -0.00641057f, -0.00816550f, -0.00952902f, -0.01050279f, -0.01109648f, -0.01132697f,
+    -0.01121798f, -0.01079912f, -0.01010511f, -0.00917473f, -0.00804980f, -0.00677404f, -0.00539211f, -0.00394840f,
+    -0.00248609f, -0.00104613f,  0.00033355f,  0.00161893f,  0.00278041f,  0.00379341f,  0.00463867f,  0.00530250f,
+     0.00577681f,  0.00605907f,  0.00615207f,  0.00606361f,  0.00580603f,  0.00539560f,  0.00485188f,  0.00419719f,
+     0.00345569f,  0.00265292f,  0.00181446f,  0.00096590f,  0.00013189f, -0.00066488f, -0.00140347f, -0.00206588f,
+    -0.00263693f, -0.00310482f, -0.00346122f, -0.00370130f, -0.00382374f, -0.00383063f, -0.00372722f, -0.00352166f,
+    -0.00322458f, -0.00284873f, -0.00240850f, -0.00191947f, -0.00139787f, -0.00086011f, -0.00032232f,  0.00020012f,
+     0.00069296f,  0.00114347f,  0.00154069f,  0.00187568f,  0.00214169f,  0.00233426f,  0.00245122f,  0.00249268f,
+     0.00246099f,  0.00236041f,  0.00219690f,  0.00197792f,  0.00171235f,  0.00141031f,  0.00108150f,  0.00073703f,
+     0.00038735f,  0.00004263f, -0.00028736f, -0.00059399f, -0.00086947f, -0.00110744f, -0.00130278f, -0.00145197f,
+    -0.00155282f, -0.00160478f, -0.00160860f, -0.00156652f, -0.00148182f, -0.00135902f, -0.00120334f, -0.00102086f,
+    -0.00081796f, -0.00060149f, -0.00037816f, -0.00015475f,  0.00006252f,  0.00026762f,  0.00045548f,  0.00062141f,
+     0.00076194f,  0.00087406f,  0.00095615f,  0.00100705f,  0.00102722f,  0.00101722f,  0.00097930f,  0.00091411f,
+     0.00082592f,  0.00071877f,  0.00059472f,  0.00045926f,  0.00031548f,  0.00016809f,  0.00002049f, -0.00012323f,
+    -0.00026006f, -0.00038672f, -0.00050098f, -0.00060057f, -0.00068425f, -0.00075082f, -0.00080005f, -0.00083182f,
+    -0.00084684f, -0.00084585f, -0.00083033f, -0.00080168f, -0.00076186f, -0.00071269f, -0.00065635f, -0.00059479f,
+    -0.00053020f, -0.00046445f, -0.00039956f, -0.00033722f, -0.00027926f, -0.00022715f, -0.00018267f, -0.00014737f,
+    -0.00012338f, -0.00011305f,  0.00038320f};
 
 static const float lp_audio_taps[LP_AUDIO_FILT_TAPS] = {
      0.00246253f,  0.00653798f,  0.00120876f, -0.00287389f,  0.00201971f, -0.00020231f, -0.00156764f,  0.00240512f,
@@ -317,6 +353,45 @@ static float average_power(complex float const *data, size_t len)
     return 20 * log10f(a);
 }
 
+static void pll_init(pll_t *pll)
+{
+    pll->out_filt = iirfilt_rrrf_create((float[]){1.5763344880617758e-06, 3.1526689761235516e-06, 1.5763344880617758e-06}, 3,
+                                        (float[]){1.0f, -1.996445697381339, 0.9964520027192911}, 3);
+    log_assert(pll->out_filt);
+    pll->agc = agc_rrrf_create();
+    log_assert(pll->agc);
+    agc_rrrf_set_bandwidth(pll->agc, 0.005);
+    agc_rrrf_set_scale(pll->agc, 0.5);
+
+    pll->ref_sig = 0.0;
+    pll->integral = 0.0;
+    pll->phase = 0;
+}
+
+static void pll_destroy(pll_t *pll)
+{
+    liquid_error_code err;
+
+    err = agc_rrrf_destroy(pll->agc);
+    log_assert(err == LIQUID_OK);
+
+    err = iirfilt_rrrf_destroy(pll->out_filt);
+    log_assert(err == LIQUID_OK);
+}
+
+static void pll_execute(pll_t *pll, float const *xs, unsigned int nx)
+{
+    for (unsigned int i = 0; i < nx; i++)
+    {
+        float pll_loop_control = xs[i] * pll->ref_sig * 8.0;
+        iirfilt_rrrf_execute(pll->out_filt, pll_loop_control, &pll->output);
+
+        pll->integral += pll_loop_control / AUDIO_SAMPLERATE;
+        pll->ref_sig = sinf(2 * M_PI * 150 * (pll->phase + pll->integral));
+        pll->phase += 1.0 / AUDIO_SAMPLERATE;
+    }
+}
+
 static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
                         size_t resamp_buf_size, size_t ctcss_buf_size)
 {
@@ -341,6 +416,12 @@ static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
     chain->ctcss_filt = firfilt_rrrf_create((float *)hp_audio_taps, HP_AUDIO_FILT_TAPS);
     log_assert(chain->ctcss_filt);
 
+    chain->ctcss_lp_filt = firfilt_rrrf_create((float *)lp_ctcss_taps, LP_CTCSS_FILT_TAPS);
+    log_assert(chain->ctcss_lp_filt);
+
+    chain->ctcss_dcblock = iirfilt_rrrf_create_dc_blocker(0.0005);
+    log_assert(chain->ctcss_dcblock);
+
     chain->audio_filt = firfilt_rrrf_create((float *)lp_audio_taps, LP_AUDIO_FILT_TAPS);
     log_assert(chain->audio_filt);
 
@@ -359,14 +440,8 @@ static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
     chain->audio_buf = cbufferf_create(AUDIO_SAMPLERATE / 3);
     log_assert(chain->audio_buf);
 
-    chain->ctcss_decim = firdecim_rrrf_create_kaiser(CTCSS_DECIM, 8, 60.0f);
-    log_assert(chain->ctcss_decim);
-
     chain->ctcss_buf = cbufferf_create(2 * ctcss_buf_size);
     log_assert(chain->ctcss_buf);
-
-    chain->ctcss_spgram = spgramf_create_default(CTCSS_FFT_SIZE);
-    log_assert(chain->ctcss_spgram);
 
     if (chain->args.waterfall > 0)
     {
@@ -388,11 +463,7 @@ static void destroy_liquid(proc_chain_t *chain)
         log_assert(err == LIQUID_OK);
     }
 
-    err = spgramf_destroy(chain->ctcss_spgram);
-    log_assert(err == LIQUID_OK);
     err = cbufferf_destroy(chain->ctcss_buf);
-    log_assert(err == LIQUID_OK);
-    err = firdecim_rrrf_destroy(chain->ctcss_decim);
     log_assert(err == LIQUID_OK);
     err = cbufferf_destroy(chain->audio_buf);
     log_assert(err == LIQUID_OK);
@@ -405,6 +476,10 @@ static void destroy_liquid(proc_chain_t *chain)
 #endif
     log_assert(err == LIQUID_OK);
     err = firfilt_rrrf_destroy(chain->audio_filt);
+    log_assert(err == LIQUID_OK);
+    err = iirfilt_rrrf_destroy(chain->ctcss_dcblock);
+    log_assert(err == LIQUID_OK);
+    err = firfilt_rrrf_destroy(chain->ctcss_lp_filt);
     log_assert(err == LIQUID_OK);
     err = firfilt_rrrf_destroy(chain->ctcss_filt);
     log_assert(err == LIQUID_OK);
@@ -523,72 +598,28 @@ static void destroy_rtaudio(proc_chain_t *chain)
     rtaudio_destroy(chain->dac);
 }
 
-static void ctcss_execute(proc_chain_t *chain, float *x, unsigned int n)
+void ctcss_execute(proc_chain_t *chain, float *x, unsigned int n)
 {
-    unsigned int num_read;
-    float *rp;
-    float psd[CTCSS_FFT_SIZE];
+    firfilt_rrrf_execute_block(chain->ctcss_lp_filt, x, n, x);
+    iirfilt_rrrf_execute_block(chain->ctcss_dcblock, x, n, x);
+    agc_rrrf_execute_block(chain->pll->agc, x, n, x);
+    pll_execute(chain->pll, x, n);
 
-    // Write to temporary buffer in order to be able
-    // to read 'CTCSS_DECIM' samples
-    liquid_error_code err = cbufferf_write(chain->ctcss_buf, x, n);
-    log_assert(err == LIQUID_OK);
+    float gain = agc_rrrf_get_gain(chain->pll->agc);
+    float ctcss_freq = 150.0 + (chain->pll->output * 150.0);
 
-    // Read max multiple of 'CTCSS_DECIM' samples
-    unsigned int ctcss_size = cbufferf_size(chain->ctcss_buf) / CTCSS_DECIM;
-    float ctcss_tmp[ctcss_size];
-    cbufferf_read(chain->ctcss_buf, CTCSS_DECIM * ctcss_size, &rp, &num_read);
-    log_assert(num_read == (CTCSS_DECIM * ctcss_size));
-
-    // Decimate the signal to leave only the CTCSS band
-    firdecim_rrrf_execute_block(chain->ctcss_decim, rp, ctcss_size, ctcss_tmp);
-
-    // Free the space in the buffer
-    err = cbufferf_release(chain->ctcss_buf, num_read);
-    log_assert(err == LIQUID_OK);
-
-    // Push the decimated signal to a spectral periodogram
-    err = spgramf_write(chain->ctcss_spgram, ctcss_tmp, ctcss_size);
-    log_assert(err == LIQUID_OK);
-
-    // Get the spectrum
-    spgramf_get_psd(chain->ctcss_spgram, psd);
-
-    float max_psd = -100.0f;
-    int max_bin = -1;
-
-    // Find the power and the 'bin' (frequency) of the strongest signal
-    // Looking just at the area of interest
-    for (size_t k = (CTCSS_FFT_SIZE / 2) + CTCSS_FREQ_TO_BIN(50); k < CTCSS_FFT_SIZE; k++)
+    if ((chain->args.waterfall == 0) && (gain > 20.0f))
     {
-        if (psd[k] > max_psd)
+        if (fabs(chain->ctcss_freq - ctcss_freq) > 2.5)
         {
-            max_psd = psd[k];
-            max_bin = k - (CTCSS_FFT_SIZE / 2);
-        }
-    }
-
-    float ctcss_freq = -1.0f;
-    if (max_psd > 5.0f)
-    {
-        ctcss_freq = CTCSS_BIN_TO_FREQ(max_bin);
-    }
-
-    if (chain->args.waterfall == 0)
-    {
-        if (ctcss_freq > 0.0f)
-        {
-            if (chain->ctcss_freq != ctcss_freq)
+            int code = find_ctcss_code(ctcss_freq);
+            if (code > 0)
             {
-                int code = find_ctcss_code(ctcss_freq);
-                if (code > 0)
-                {
-                    LOG(INFO, "Acquired CTCSS code: %d (frequency: %3.2fHz)", code, ctcss_freq);
-                }
-                else
-                {
-                    LOG(INFO, "Acquired CTCSS frequency: %3.2fHz (unknown code)", ctcss_freq);
-                }
+                LOG(INFO, "Acquired CTCSS code: %d (frequency: %3.2fHz)", code, ctcss_freq);
+            }
+            else
+            {
+                LOG(INFO, "Acquired CTCSS frequency: %3.2fHz (unknown code)", ctcss_freq);
             }
         }
     }
@@ -691,6 +722,7 @@ int main(int argc, char *argv[])
     size_t chan_size = (size_t)ceilf(res_size / SDR_NUM_CHANNELS);
     complex float chan_bufs[SDR_NUM_CHANNELS][chan_size];
     float fm_out_buf[chan_size];
+    float ctcss_buf[chan_size];
 
     // assemble footer
     unsigned int footer_len = chain->args.waterfall + 32;
@@ -710,6 +742,8 @@ int main(int argc, char *argv[])
     char ascii[chain->args.waterfall + 1];
     ascii[chain->args.waterfall] = '\0';
 
+    pll_t pll;
+
     read = pthread_mutex_init(&lock, NULL);
     log_assert(read == 0);
 
@@ -724,6 +758,9 @@ int main(int argc, char *argv[])
 
     ret = init_rtaudio(chain);
     log_assert(ret);
+
+    pll_init(&pll);
+    chain->pll = &pll;
 
     sigact.sa_handler = sighandler;
     sigemptyset(&sigact.sa_mask);
@@ -835,7 +872,7 @@ int main(int argc, char *argv[])
                 }
                 chain->active_chan = -1;
                 chain->state = proc_scanning;
-                spgramf_reset(chain->ctcss_spgram);
+                chain->ctcss_freq = 0.0;
                 freqdem_reset(chain->fm_demod);
             }
         }
@@ -851,7 +888,8 @@ int main(int argc, char *argv[])
             if (chain->active_chan == i)
             {
                 freqdem_demodulate_block(chain->fm_demod, chan_bufs[i], ns, fm_out_buf);
-                ctcss_execute(chain, fm_out_buf, ns);
+                memcpy(ctcss_buf, fm_out_buf, ns * sizeof(float));
+                ctcss_execute(chain, ctcss_buf, ns);
                 firfilt_rrrf_execute_block(chain->ctcss_filt, fm_out_buf, ns, fm_out_buf);
                 for (size_t k = 0; k < ns; k++)
                 {
@@ -897,6 +935,7 @@ int main(int argc, char *argv[])
 #endif
     }
 
+    pll_destroy(chain->pll);
     destroy_rtaudio(chain);
     destroy_soapy(chain);
     destroy_liquid(chain);

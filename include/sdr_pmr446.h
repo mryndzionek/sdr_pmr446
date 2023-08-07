@@ -30,6 +30,16 @@ struct arguments
     uint16_t channel_mask;
 };
 
+typedef struct
+{
+    iirfilt_rrrf out_filt;
+    agc_rrrf agc;
+    float ref_sig;
+    float integral;
+    float phase;
+    float output;
+} pll_t;
+
 struct _proc_chain_t
 {
     SoapySDRDevice *sdr;
@@ -40,9 +50,11 @@ struct _proc_chain_t
     nco_crcf nco;
     firpfbch_crcf channelizer;
     freqdem fm_demod;
+    pll_t *pll;
     firfilt_rrrf ctcss_filt;
+    firfilt_rrrf ctcss_lp_filt;
+    iirfilt_rrrf ctcss_dcblock;
     firfilt_rrrf audio_filt;
-    firdecim_rrrf ctcss_decim;
 #ifdef APP_FIR_DEEMPH
     firfilt_rrrf deemph;
 #else
@@ -51,7 +63,6 @@ struct _proc_chain_t
     cbufferf ctcss_buf;
     cbuffercf resamp_buf;
     cbufferf audio_buf;
-    spgramf ctcss_spgram;
     asgramcf asgram;
     proc_chain_state_e state;
     struct arguments args;
