@@ -37,7 +37,7 @@
 #define DEEMPH_FILT_TAPS (101)
 #endif
 
-#define CSAMPLE_SIZE sizeof(complex float)
+#define CTCSS_MID_FREQ_HZ (150.0f)
 
 #define xstr(s) str(s)
 #define str(s) #s
@@ -611,6 +611,9 @@ static void destroy_rtaudio(proc_chain_t *chain)
 
 void ctcss_execute(proc_chain_t *chain, float *x, unsigned int n)
 {
+    static int prev_code = -1;
+    static uint16_t code_match_count = 0;
+
     firfilt_rrrf_execute_block(chain->ctcss_lp_filt, x, n, x);
     iirfilt_rrrf_execute_block(chain->ctcss_dcblock, x, n, x);
     agc_rrrf_execute_block(chain->pll->agc, x, n, x);
@@ -618,24 +621,35 @@ void ctcss_execute(proc_chain_t *chain, float *x, unsigned int n)
 
     if (chain->pll->locked)
     {
-        float ctcss_freq = 150.0 + (chain->pll->output * 150.0);
-        chain->ctcss_freq = ctcss_freq;
-
+        float ctcss_freq = CTCSS_MID_FREQ_HZ + (chain->pll->output * CTCSS_MID_FREQ_HZ);
         if (chain->args.waterfall == 0)
         {
-            if (fabs(chain->ctcss_freq - ctcss_freq) > 2.5)
+            if (1)
             {
                 int code = find_ctcss_code(ctcss_freq);
-                if (code > 0)
+                if (code != prev_code)
                 {
-                    LOG(INFO, "Acquired CTCSS code: %d (frequency: %3.2fHz)", code, ctcss_freq);
+                    code_match_count = 0;
+                }
+                else if (code >= 1)
+                {
+                    if (code_match_count < 5)
+                    {
+                        code_match_count++;
+                        if (code_match_count == 5)
+                        {
+                            LOG(INFO, "Acquired CTCSS code: %d (frequency: %3.2fHz)", code, ctcss_freq);
+                        }
+                    }
                 }
                 else
                 {
-                    LOG(INFO, "Acquired CTCSS frequency: %3.2fHz (unknown code)", ctcss_freq);
+                    LOG(DEBUG, "Acquired CTCSS frequency: %3.2fHz (unknown code)", ctcss_freq);
                 }
+                prev_code = code;
             }
         }
+        chain->ctcss_freq = ctcss_freq;
     }
 }
 
@@ -669,25 +683,34 @@ static void refresh_footer(proc_chain_t *chain, char *const footer, size_t w_len
     if (chain->active_chan >= 0)
     {
         int ctcss_code = find_ctcss_code(chain->ctcss_freq);
-        if (ctcss_code > 0)
+        if (chain->pll->locked)
         {
-            sprintf(&footer[w_len + 6], "%8.3f MHz [%d]  [CTCSS:  %02d (%3.2fHz)]", SDR_FREQUENCY * 1e-6f,
-                    chain->active_chan + 1, ctcss_code, chain->ctcss_freq);
-        }
-        else
-        {
-            if (chain->ctcss_freq > 0)
+            if (ctcss_code > 0)
             {
-                sprintf(&footer[w_len + 6], "%8.3f MHz [%d]  [CTCSS:  ?? (%3.2f)]",
-                        SDR_FREQUENCY * 1e-6f,
-                        chain->active_chan + 1, chain->ctcss_freq);
+                sprintf(&footer[w_len + 6], "%8.3f MHz [%d]  [CTCSS:  %02d (%3.2fHz)]", SDR_FREQUENCY * 1e-6f,
+                        chain->active_chan + 1, ctcss_code, chain->ctcss_freq);
             }
             else
             {
-                sprintf(&footer[w_len + 6], "%8.3f MHz [%d]",
-                        SDR_FREQUENCY * 1e-6f,
-                        chain->active_chan + 1);
+                if (chain->ctcss_freq > 0)
+                {
+                    sprintf(&footer[w_len + 6], "%8.3f MHz [%d]  [CTCSS:  ?? (%3.2f)]",
+                            SDR_FREQUENCY * 1e-6f,
+                            chain->active_chan + 1, chain->ctcss_freq);
+                }
+                else
+                {
+                    sprintf(&footer[w_len + 6], "%8.3f MHz [%d]",
+                            SDR_FREQUENCY * 1e-6f,
+                            chain->active_chan + 1);
+                }
             }
+        }
+        else
+        {
+            sprintf(&footer[w_len + 6], "%8.3f MHz [%d]",
+                    SDR_FREQUENCY * 1e-6f,
+                    chain->active_chan + 1);
         }
     }
     else

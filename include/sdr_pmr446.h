@@ -10,7 +10,7 @@
 
 #include <rtaudio/rtaudio_c.h>
 
-#define SDR_SAMPLERATE (1000000UL)
+#define SDR_SAMPLERATE (1024000UL)
 
 typedef enum
 {

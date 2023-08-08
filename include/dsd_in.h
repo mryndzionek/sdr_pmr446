@@ -8,7 +8,7 @@
 
 #include <liquid/liquid.h>
 
-#define SDR_SAMPLERATE (1000000UL)
+#define SDR_SAMPLERATE (1024000UL)
 
 struct arguments
 {
