@@ -355,13 +355,17 @@ static float average_power(complex float const *data, size_t len)
 
 static void pll_init(pll_t *pll)
 {
-    pll->out_filt = iirfilt_rrrf_create((float[]){1.5763344880617758e-06, 3.1526689761235516e-06, 1.5763344880617758e-06}, 3,
-                                        (float[]){1.0f, -1.996445697381339, 0.9964520027192911}, 3);
+    pll->out_filt = iirfilt_rrrf_create((float[]){0.00000158f, 0.00000315f, 0.00000158f}, 3,
+                                        (float[]){1.00000000f, -1.99644570f, 0.99645200f}, 3);
     log_assert(pll->out_filt);
+    pll->lock_filt = iirfilt_rrrf_create((float[]){0.00000158f, 0.00000315f, 0.00000158f}, 3,
+                                         (float[]){1.00000000f, -1.99644570f, 0.99645200f}, 3);
+    log_assert(pll->lock_filt);
+
     pll->agc = agc_rrrf_create();
     log_assert(pll->agc);
     agc_rrrf_set_bandwidth(pll->agc, 0.005);
-    agc_rrrf_set_scale(pll->agc, 0.5);
+    agc_rrrf_set_scale(pll->agc, 1.0);
 
     pll->ref_sig = 0.0;
     pll->integral = 0.0;
@@ -373,6 +377,9 @@ static void pll_destroy(pll_t *pll)
     liquid_error_code err;
 
     err = agc_rrrf_destroy(pll->agc);
+    log_assert(err == LIQUID_OK);
+
+    err = iirfilt_rrrf_destroy(pll->lock_filt);
     log_assert(err == LIQUID_OK);
 
     err = iirfilt_rrrf_destroy(pll->out_filt);
@@ -388,6 +395,10 @@ static void pll_execute(pll_t *pll, float const *xs, unsigned int nx)
 
         pll->integral += pll_loop_control / AUDIO_SAMPLERATE;
         pll->ref_sig = sinf(2 * M_PI * 150 * (pll->phase + pll->integral));
+        float quad_ref = cosf(2 * M_PI * 150 * (pll->phase + pll->integral));
+        float lock;
+        iirfilt_rrrf_execute(pll->lock_filt, -quad_ref * xs[i], &lock);
+        pll->locked = lock > 0.7f;
         pll->phase += 1.0 / AUDIO_SAMPLERATE;
     }
 }
@@ -605,26 +616,27 @@ void ctcss_execute(proc_chain_t *chain, float *x, unsigned int n)
     agc_rrrf_execute_block(chain->pll->agc, x, n, x);
     pll_execute(chain->pll, x, n);
 
-    float gain = agc_rrrf_get_gain(chain->pll->agc);
-    float ctcss_freq = 150.0 + (chain->pll->output * 150.0);
-
-    if ((chain->args.waterfall == 0) && (gain > 20.0f))
+    if (chain->pll->locked)
     {
-        if (fabs(chain->ctcss_freq - ctcss_freq) > 2.5)
+        float ctcss_freq = 150.0 + (chain->pll->output * 150.0);
+        chain->ctcss_freq = ctcss_freq;
+
+        if (chain->args.waterfall == 0)
         {
-            int code = find_ctcss_code(ctcss_freq);
-            if (code > 0)
+            if (fabs(chain->ctcss_freq - ctcss_freq) > 2.5)
             {
-                LOG(INFO, "Acquired CTCSS code: %d (frequency: %3.2fHz)", code, ctcss_freq);
-            }
-            else
-            {
-                LOG(INFO, "Acquired CTCSS frequency: %3.2fHz (unknown code)", ctcss_freq);
+                int code = find_ctcss_code(ctcss_freq);
+                if (code > 0)
+                {
+                    LOG(INFO, "Acquired CTCSS code: %d (frequency: %3.2fHz)", code, ctcss_freq);
+                }
+                else
+                {
+                    LOG(INFO, "Acquired CTCSS frequency: %3.2fHz (unknown code)", ctcss_freq);
+                }
             }
         }
     }
-
-    chain->ctcss_freq = ctcss_freq;
 }
 
 static void refresh_footer(proc_chain_t *chain, char *const footer, size_t w_len)

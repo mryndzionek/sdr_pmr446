@@ -33,11 +33,13 @@ struct arguments
 typedef struct
 {
     iirfilt_rrrf out_filt;
+    iirfilt_rrrf lock_filt;
     agc_rrrf agc;
     float ref_sig;
     float integral;
     float phase;
     float output;
+    bool locked;
 } pll_t;
 
 struct _proc_chain_t
