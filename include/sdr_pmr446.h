@@ -54,7 +54,7 @@ struct _proc_chain_t
     freqdem fm_demod;
     pll_t *pll;
     firfilt_rrrf ctcss_filt;
-    firfilt_rrrf ctcss_lp_filt;
+    wdelayf ctcss_lp_delay;
     iirfilt_rrrf ctcss_dcblock;
     firfilt_rrrf audio_filt;
 #ifdef APP_FIR_DEEMPH
