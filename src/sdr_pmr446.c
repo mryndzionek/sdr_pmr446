@@ -20,6 +20,8 @@
 #include "shared.h"
 #include "logging.h"
 
+#define FOOTER_TAIL_LEN (32UL)
+
 #define AUDIO_SAMPLERATE (12500UL)
 
 #define SDR_INPUT_CHUNK (100000UL)
@@ -247,12 +249,14 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             {
                 LOG(ERROR, "The channels specified in channel mask must be in the range 1-16");
                 argp_usage(state);
+                break;
             }
 
             if ((r < 1) || (r > 16))
             {
                 LOG(ERROR, "The channels specified in channel mask must be in the range 1-16");
                 argp_usage(state);
+                break;
             }
 
             for (; l <= r; l++)
@@ -654,35 +658,35 @@ static void refresh_footer(proc_chain_t *chain, char *const footer, size_t w_len
         {
             if (ctcss_code > 0)
             {
-                sprintf(&footer[w_len + 6], "%8.3f MHz [%d]  [CTCSS:  %02d (%3.2fHz)]", SDR_FREQUENCY * 1e-6f,
-                        chain->active_chan + 1, ctcss_code, chain->ctcss_freq);
+                snprintf(&footer[w_len + 6], w_len + FOOTER_TAIL_LEN, "%8.3f MHz [%d]  [CTCSS:  %02d (%3.2fHz)]", SDR_FREQUENCY * 1e-6f,
+                         chain->active_chan + 1, ctcss_code, chain->ctcss_freq);
             }
             else
             {
                 if (chain->ctcss_freq > 0)
                 {
-                    sprintf(&footer[w_len + 6], "%8.3f MHz [%d]  [CTCSS:  ?? (%3.2f)]",
-                            SDR_FREQUENCY * 1e-6f,
-                            chain->active_chan + 1, chain->ctcss_freq);
+                    snprintf(&footer[w_len + 6], w_len + FOOTER_TAIL_LEN, "%8.3f MHz [%d]  [CTCSS:  ?? (%3.2f)]",
+                             SDR_FREQUENCY * 1e-6f,
+                             chain->active_chan + 1, chain->ctcss_freq);
                 }
                 else
                 {
-                    sprintf(&footer[w_len + 6], "%8.3f MHz [%d]",
-                            SDR_FREQUENCY * 1e-6f,
-                            chain->active_chan + 1);
+                    snprintf(&footer[w_len + 6], w_len + FOOTER_TAIL_LEN, "%8.3f MHz [%d]",
+                             SDR_FREQUENCY * 1e-6f,
+                             chain->active_chan + 1);
                 }
             }
         }
         else
         {
-            sprintf(&footer[w_len + 6], "%8.3f MHz [%d]",
-                    SDR_FREQUENCY * 1e-6f,
-                    chain->active_chan + 1);
+            snprintf(&footer[w_len + 6], w_len + FOOTER_TAIL_LEN, "%8.3f MHz [%d]",
+                     SDR_FREQUENCY * 1e-6f,
+                     chain->active_chan + 1);
         }
     }
     else
     {
-        sprintf(&footer[w_len + 6], "%8.3f MHz", SDR_FREQUENCY * 1e-6f);
+        snprintf(&footer[w_len + 6], w_len + FOOTER_TAIL_LEN, "%8.3f MHz", SDR_FREQUENCY * 1e-6f);
     }
 }
 
@@ -727,7 +731,7 @@ int main(int argc, char *argv[])
     float tmp_buf2[chan_size];
 
     // assemble footer
-    unsigned int footer_len = chain->args.waterfall + 32;
+    unsigned int footer_len = chain->args.waterfall + FOOTER_TAIL_LEN;
     char footer[footer_len + 1];
 
     if (chain->args.waterfall > 0)
