@@ -20,7 +20,7 @@
 #include "shared.h"
 #include "logging.h"
 
-#define FOOTER_TAIL_LEN (32UL)
+#define FOOTER_TAIL_LEN (64UL)
 
 #define AUDIO_SAMPLERATE (12500UL)
 
@@ -169,6 +169,7 @@ static struct argp_option options[] = {
     {"lowpass", 'l', 0, 0, "Turn on 4.5kHz lowpass audio filter (might reduce noise)"},
     {"mask", 'm', "CM", 0, "Channel mask e.g. 1,2,8-16 (only listen to channels 1,2 and 8 to 16)"},
     {"audio-gain", 'a', "AG", 0, "The gain to set in the SDR receiver in (default: " xstr(SDR_DEFAULT_AUDIO_GAIN) ")"},
+    {"lock-mode", 'p', "LM", 0, "Channel lock mode, 'start', or 'max' (default: 'start')"},
     {0}};
 
 static struct argp argp = {options, parse_opt, args_doc, doc};
@@ -275,6 +276,22 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
     }
     break;
+
+    case 'p':
+        if (strncmp(arg, "max", sizeof("max")) == 0)
+        {
+            arguments->lock_mode = lock_mode_max;
+        }
+        else if (strncmp(arg, "start", sizeof("start")) == 0)
+        {
+            arguments->lock_mode = lock_mode_start;
+        }
+        else
+        {
+            LOG(ERROR, "Failed to parse the channel lock mode (should be 'start', or 'max')");
+            argp_usage(state);
+        }
+        break;
 
     case ARGP_KEY_ARG:
         if (state->arg_num >= 0)
@@ -696,7 +713,7 @@ static void refresh_footer(proc_chain_t *chain, char *const footer, size_t w_len
     }
 }
 
-static size_t find_max_power_channel(proc_chain_t *chain, ch_buff_mat_t *chan_bufs, size_t ns, float *max_rssi)
+static size_t find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_bufs, size_t ns, float *max_rssi)
 {
     size_t s_ch;
 
@@ -864,18 +881,20 @@ int main(int argc, char *argv[])
             ns++;
         }
 
+        log_assert(ns <= SDR_CHANNEL_BUF_SIZE);
+
         // Update chain state
         switch (chain->state)
         {
         case proc_scanning:
         {
             float max_rssi;
-            size_t max_i = find_max_power_channel(chain, &chan_bufs, ns, &max_rssi);
+            int max_ch = find_max_rssi_channel(chain, &chan_bufs, ns, &max_rssi);
 
             chain->rssi = max_rssi;
             if (chain->rssi > chain->args.squelch_level)
             {
-                chain->active_chan = max_i;
+                chain->active_chan = max_ch;
                 chain->state = proc_tuned;
                 if (chain->args.waterfall == 0)
                 {
@@ -888,7 +907,26 @@ int main(int argc, char *argv[])
 
         case proc_tuned:
         {
-            chain->rssi = average_power(chan_bufs[chain->active_chan], ns);
+            if (chain->args.lock_mode == lock_mode_max)
+            {
+                float max_rssi;
+                int max_ch = find_max_rssi_channel(chain, &chan_bufs, ns, &max_rssi);
+
+                chain->rssi = max_rssi;
+                if (chain->active_chan != max_ch)
+                {
+                    if (chain->args.waterfall == 0)
+                    {
+                        LOG(INFO, "Changed active channel from %d to %d", chain->active_chan + 1, max_ch + 1);
+                    }
+                    chain->active_chan = max_ch;
+                }
+            }
+            else
+            {
+                chain->rssi = average_power(chan_bufs[chain->active_chan], ns);
+            }
+
             if (chain->rssi < (chain->args.squelch_level - 5.0))
             {
                 if (chain->args.waterfall == 0)
