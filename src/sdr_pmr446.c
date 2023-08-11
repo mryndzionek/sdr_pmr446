@@ -32,6 +32,9 @@
 #define SDR_DEFAULT_AUDIO_GAIN (4.0)
 #define SDR_DEFAULT_SQUELCH_LEVEL (-5.0)
 
+#define SDR_RESAMP_BUF_SIZE (39064)
+#define SDR_CHANNEL_BUF_SIZE (2441)
+
 #define HP_AUDIO_FILT_TAPS (377)
 #define LP_AUDIO_FILT_TAPS (103)
 #define LP_CTCSS_FILT_TAPS (315)
@@ -43,6 +46,8 @@
 
 #define xstr(s) str(s)
 #define str(s) #s
+
+typedef complex float ch_buff_mat_t[SDR_NUM_CHANNELS][SDR_CHANNEL_BUF_SIZE];
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state);
 
@@ -146,7 +151,8 @@ static proc_chain_t g_chain = {
         .squelch_level = SDR_DEFAULT_SQUELCH_LEVEL,
         .waterfall = 0,
         .lowpass = false,
-        .channel_mask = 0xFFFF}};
+        .channel_mask = 0xFFFF,
+        .lock_mode = lock_mode_start}};
 
 static pthread_mutex_t lock;
 static bool exit_via_sig;
@@ -690,6 +696,42 @@ static void refresh_footer(proc_chain_t *chain, char *const footer, size_t w_len
     }
 }
 
+static size_t find_max_power_channel(proc_chain_t *chain, ch_buff_mat_t *chan_bufs, size_t ns, float *max_rssi)
+{
+    size_t s_ch;
+
+    for (s_ch = 0; s_ch < SDR_NUM_CHANNELS; s_ch++)
+    {
+        if (chain->args.channel_mask & (1UL << s_ch))
+        {
+            break;
+        }
+    }
+
+    log_assert(s_ch < 16);
+
+    float rssi_max = average_power((*chan_bufs)[s_ch], ns);
+    size_t max_i = s_ch;
+
+    for (size_t i = s_ch; i < SDR_NUM_CHANNELS; i++)
+    {
+        // Only take into consideration the channels
+        // enabled in mask
+        if (chain->args.channel_mask & (1UL << i))
+        {
+            float rssi = average_power((*chan_bufs)[i], ns);
+            if (rssi > rssi_max)
+            {
+                rssi_max = rssi;
+                max_i = i;
+            }
+        }
+    }
+
+    *max_rssi = rssi_max;
+    return max_i;
+}
+
 int main(int argc, char *argv[])
 {
     bool ret;
@@ -720,15 +762,19 @@ int main(int argc, char *argv[])
     }
 
     size_t res_size = (size_t)ceilf(1 + 2 * SDR_INPUT_CHUNK * ((float)SDR_RESAMPLERATE / SDR_SAMPLERATE));
+    size_t chan_size = (size_t)ceilf(res_size / SDR_NUM_CHANNELS);
+    LOG(INFO, "SDR_RESAMP_BUF_SIZE=%ld, SDR_CHANNEL_BUF_SIZE=%ld", res_size, chan_size);
+    log_assert(res_size == SDR_RESAMP_BUF_SIZE);
+    log_assert(chan_size == SDR_CHANNEL_BUF_SIZE);
+
     complex float buffp[SDR_INPUT_CHUNK];
-    complex float resamp_buf[res_size];
+    complex float resamp_buf[SDR_RESAMP_BUF_SIZE];
     complex float tmp_chan_buf_out[SDR_NUM_CHANNELS];
     void *buffs[] = {buffp};
 
-    size_t chan_size = (size_t)ceilf(res_size / SDR_NUM_CHANNELS);
-    complex float chan_bufs[SDR_NUM_CHANNELS][chan_size];
-    float tmp_buf1[chan_size];
-    float tmp_buf2[chan_size];
+    ch_buff_mat_t chan_bufs;
+    float tmp_buf1[SDR_CHANNEL_BUF_SIZE];
+    float tmp_buf2[SDR_CHANNEL_BUF_SIZE];
 
     // assemble footer
     unsigned int footer_len = chain->args.waterfall + FOOTER_TAIL_LEN;
@@ -753,7 +799,7 @@ int main(int argc, char *argv[])
     read = pthread_mutex_init(&lock, NULL);
     log_assert(read == 0);
 
-    ret = init_liquid(chain, chain->args.waterfall, res_size, chan_size);
+    ret = init_liquid(chain, chain->args.waterfall, SDR_RESAMP_BUF_SIZE, SDR_CHANNEL_BUF_SIZE);
     log_assert(ret);
 
     ret = init_soapy(chain);
@@ -823,35 +869,8 @@ int main(int argc, char *argv[])
         {
         case proc_scanning:
         {
-            size_t s_ch;
-
-            for (s_ch = 0; s_ch < SDR_NUM_CHANNELS; s_ch++)
-            {
-                if (chain->args.channel_mask & (1UL << s_ch))
-                {
-                    break;
-                }
-            }
-
-            log_assert(s_ch < 16);
-
-            float max_rssi = average_power(chan_bufs[s_ch], ns);
-            size_t max_i = s_ch;
-
-            for (size_t i = s_ch; i < SDR_NUM_CHANNELS; i++)
-            {
-                // Only take into consideration the channels
-                // enabled in mask
-                if (chain->args.channel_mask & (1UL << i))
-                {
-                    float rssi = average_power(chan_bufs[i], ns);
-                    if (rssi > max_rssi)
-                    {
-                        max_rssi = rssi;
-                        max_i = i;
-                    }
-                }
-            }
+            float max_rssi;
+            size_t max_i = find_max_power_channel(chain, &chan_bufs, ns, &max_rssi);
 
             chain->rssi = max_rssi;
             if (chain->rssi > chain->args.squelch_level)

@@ -18,6 +18,12 @@ typedef enum
     proc_tuned,
 } proc_chain_state_e;
 
+typedef enum
+{
+    lock_mode_start = 0,
+    lock_mode_max,
+} lock_mode_e;
+
 struct arguments
 {
     char *args[1];
@@ -28,6 +34,7 @@ struct arguments
     size_t waterfall;
     bool lowpass;
     uint16_t channel_mask;
+    lock_mode_e lock_mode;
 };
 
 typedef struct
