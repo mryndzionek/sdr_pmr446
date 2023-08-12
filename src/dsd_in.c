@@ -22,7 +22,7 @@
 #define AUDIO_SAMPLERATE (48000UL)
 #define SIG_SAMPLERATE (12500UL)
 
-#define SDR_INPUT_CHUNK (100000UL)
+#define SDR_INPUT_CHUNK (200000UL)
 #define DEFAULT_SDR_FREQUENCY (160.0e6)
 #define DEFAULT_SDR_GAIN (25.0)
 
@@ -153,6 +153,8 @@ int main(int argc, char *argv[])
     {
         exit(EXIT_FAILURE);
     }
+
+    setvbuf(stdout, NULL, _IONBF, 0);
 
     while (true)
     {

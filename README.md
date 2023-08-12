@@ -27,4 +27,9 @@ Look at [build.yml](.github/workflows/build.yml) for details.
     Replaces the normal combination of `rtl_fm` and `sox`
     used to feed the signal into DSD while having better
     processing characteristics.
+    
+    To debug/listen to the demodulated output:
+    ```
+    ./dsd_in -f 160.0e6 -g 35 | play -r48k -traw -es -b16 -c1 -V1 -
+    ```
 
