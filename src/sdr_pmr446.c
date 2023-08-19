@@ -313,7 +313,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
 static int find_ctcss_code(float ctcss_freq)
 {
-    if ((ctcss_freq >= 67.0f) && (ctcss_freq <= 250.3f))
+    if ((ctcss_freq >= 60.0f) && (ctcss_freq <= 260.0f))
     {
         float min_dist = fabs(ctcss_freq - ctcss_freqs[0]);
         int min_i = 0;
