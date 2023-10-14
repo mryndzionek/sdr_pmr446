@@ -24,12 +24,16 @@
 
 #define FOOTER_TAIL_LEN (64UL)
 
-#define AUDIO_SAMPLERATE (12500UL)
+#define CHANNEL_WIDTH_HZ (12500UL)
+#define NUM_CHANNELS (16)
+#define AUDIO_SAMPLERATE (CHANNEL_WIDTH_HZ)
+#define BAND_START_HZ (446.0e6)
+
+#define SDR_RESAMPLERATE (NUM_CHANNELS * CHANNEL_WIDTH_HZ)
+#define SDR_FREQUENCY (BAND_START_HZ + ((NUM_CHANNELS / 2) * CHANNEL_WIDTH_HZ))
 
 #define SDR_INPUT_CHUNK (100000UL)
-#define SDR_RESAMPLERATE (200000UL)
-#define SDR_FREQUENCY (446.1e6)
-#define SDR_NUM_CHANNELS (16)
+
 #define SDR_DEFAULT_GAIN (42.0)
 #define SDR_DEFAULT_AUDIO_GAIN (4.0)
 #define SDR_DEFAULT_SQUELCH_LEVEL (-5.0)
@@ -49,7 +53,7 @@
 #define xstr(s) str(s)
 #define str(s) #s
 
-typedef complex float ch_buff_mat_t[SDR_NUM_CHANNELS][SDR_CHANNEL_BUF_SIZE];
+typedef complex float ch_buff_mat_t[NUM_CHANNELS][SDR_CHANNEL_BUF_SIZE];
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state);
 
@@ -412,10 +416,10 @@ static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
 
     chain->nco = nco_crcf_create(LIQUID_VCO);
     log_assert(chain->nco);
-    float offset = -0.5f * (float)(SDR_NUM_CHANNELS - 1) / (float)SDR_NUM_CHANNELS * 2 * M_PI;
+    float offset = -0.5f * (float)(NUM_CHANNELS - 1) / (float)NUM_CHANNELS * 2 * M_PI;
     nco_crcf_set_frequency(chain->nco, offset);
 
-    chain->channelizer = firpfbch_crcf_create_kaiser(LIQUID_ANALYZER, SDR_NUM_CHANNELS, 13, 80.0);
+    chain->channelizer = firpfbch_crcf_create_kaiser(LIQUID_ANALYZER, NUM_CHANNELS, 13, 80.0);
     log_assert(chain->channelizer);
 
     chain->fm_demod = freqdem_create(0.5f);
@@ -455,7 +459,7 @@ static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
     {
         chain->asgram = asgramcf_create(asgram_len);
         log_assert(chain->asgram);
-        asgramcf_set_scale(chain->asgram, -40.0f, 5.0f);
+        asgramcf_set_scale(chain->asgram, -50.0f, 2.0f);
     }
 
     return true;
@@ -651,9 +655,9 @@ void ctcss_execute(proc_chain_t *chain, float *x, unsigned int n)
 
 static void refresh_footer(proc_chain_t *chain, char *const footer, size_t w_len)
 {
-    float ch_width = (float)w_len / (SDR_NUM_CHANNELS);
+    float ch_width = (float)w_len / (NUM_CHANNELS);
 
-    for (size_t i = 0; i < SDR_NUM_CHANNELS; i++)
+    for (size_t i = 0; i < NUM_CHANNELS; i++)
     {
         int pos;
         size_t rpos = roundf((i * ch_width) + (ch_width / 2) + 2);
@@ -719,7 +723,7 @@ static size_t find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_buf
 {
     size_t s_ch;
 
-    for (s_ch = 0; s_ch < SDR_NUM_CHANNELS; s_ch++)
+    for (s_ch = 0; s_ch < NUM_CHANNELS; s_ch++)
     {
         if (chain->args.channel_mask & (1ULL << s_ch))
         {
@@ -727,12 +731,12 @@ static size_t find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_buf
         }
     }
 
-    log_assert(s_ch < SDR_NUM_CHANNELS);
+    log_assert(s_ch < NUM_CHANNELS);
 
     float rssi_max = average_power((*chan_bufs)[s_ch], ns);
     size_t max_i = s_ch;
 
-    for (size_t i = s_ch; i < SDR_NUM_CHANNELS; i++)
+    for (size_t i = s_ch; i < NUM_CHANNELS; i++)
     {
         // Only take into consideration the channels
         // enabled in mask
@@ -781,14 +785,14 @@ int main(int argc, char *argv[])
     }
 
     size_t res_size = (size_t)ceilf(1 + 2 * SDR_INPUT_CHUNK * ((float)SDR_RESAMPLERATE / SDR_SAMPLERATE));
-    size_t chan_size = (size_t)ceilf(res_size / SDR_NUM_CHANNELS);
+    size_t chan_size = (size_t)ceilf(res_size / NUM_CHANNELS);
     LOG(INFO, "SDR_RESAMP_BUF_SIZE=%ld, SDR_CHANNEL_BUF_SIZE=%ld", res_size, chan_size);
     log_assert(res_size == SDR_RESAMP_BUF_SIZE);
     log_assert(chan_size == SDR_CHANNEL_BUF_SIZE);
 
     complex float buffp[SDR_INPUT_CHUNK];
     complex float resamp_buf[SDR_RESAMP_BUF_SIZE];
-    complex float tmp_chan_buf_out[SDR_NUM_CHANNELS];
+    complex float tmp_chan_buf_out[NUM_CHANNELS];
     void *buffs[] = {buffp};
 
     ch_buff_mat_t chan_bufs;
@@ -859,12 +863,12 @@ int main(int argc, char *argv[])
         unsigned int num_read;
         complex float *rpc;
 
-        while (cbuffercf_size(chain->resamp_buf) >= SDR_NUM_CHANNELS)
+        while (cbuffercf_size(chain->resamp_buf) >= NUM_CHANNELS)
         {
-            cbuffercf_read(chain->resamp_buf, SDR_NUM_CHANNELS, &rpc, &num_read);
-            log_assert(num_read == SDR_NUM_CHANNELS);
+            cbuffercf_read(chain->resamp_buf, NUM_CHANNELS, &rpc, &num_read);
+            log_assert(num_read == NUM_CHANNELS);
 
-            for (int i = 0; i < SDR_NUM_CHANNELS; i++)
+            for (int i = 0; i < NUM_CHANNELS; i++)
             {
                 complex float *x = &rpc[i];
                 nco_crcf_mix_down(chain->nco, *x, x);
@@ -876,7 +880,7 @@ int main(int argc, char *argv[])
             log_assert(err == LIQUID_OK);
 
             // transpose channels
-            for (size_t i = 0; i < SDR_NUM_CHANNELS; i++)
+            for (size_t i = 0; i < NUM_CHANNELS; i++)
             {
                 chan_bufs[i][ns] = tmp_chan_buf_out[i];
             }
@@ -948,7 +952,7 @@ int main(int argc, char *argv[])
             break;
         }
 
-        for (size_t i = 0; i < SDR_NUM_CHANNELS; i++)
+        for (size_t i = 0; i < NUM_CHANNELS; i++)
         {
             if (chain->active_chan == i)
             {
