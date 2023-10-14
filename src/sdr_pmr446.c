@@ -20,6 +20,8 @@
 #include "shared.h"
 #include "logging.h"
 
+#define MAX_CHANNELS (64)
+
 #define FOOTER_TAIL_LEN (64UL)
 
 #define AUDIO_SAMPLERATE (12500UL)
@@ -151,7 +153,7 @@ static proc_chain_t g_chain = {
         .squelch_level = SDR_DEFAULT_SQUELCH_LEVEL,
         .waterfall = 0,
         .lowpass = false,
-        .channel_mask = 0xFFFF,
+        .channel_mask = UINT64_MAX,
         .lock_mode = lock_mode_start}};
 
 static pthread_mutex_t lock;
@@ -236,7 +238,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'm':
     {
         long l, r;
-        arguments->channel_mask = 0;
+        arguments->channel_mask = UINT64_MAX;
 
         while (*arg)
         {
@@ -252,23 +254,23 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             else
                 r = l;
 
-            if ((l < 1) || (l > 16))
+            if ((l < 1) || (l > MAX_CHANNELS))
             {
-                LOG(ERROR, "The channels specified in channel mask must be in the range 1-16");
+                LOG(ERROR, "The channels specified in channel mask must be in the range 1-" str(MAX_CHANNELS));
                 argp_usage(state);
                 break;
             }
 
-            if ((r < 1) || (r > 16))
+            if ((r < 1) || (r > MAX_CHANNELS))
             {
-                LOG(ERROR, "The channels specified in channel mask must be in the range 1-16");
+                LOG(ERROR, "The channels specified in channel mask must be in the range 1-" str(MAX_CHANNELS));
                 argp_usage(state);
                 break;
             }
 
             for (; l <= r; l++)
             {
-                arguments->channel_mask |= (1UL << (l - 1));
+                arguments->channel_mask &= ~(1ULL << (l - 1));
             }
 
             while (*arg && !isdigit(*arg))
@@ -657,12 +659,12 @@ static void refresh_footer(proc_chain_t *chain, char *const footer, size_t w_len
         size_t rpos = roundf((i * ch_width) + (ch_width / 2) + 2);
         if (chain->active_chan == i)
         {
-            log_assert(chain->args.channel_mask & (1UL << i));
+            log_assert(chain->args.channel_mask & (1ULL << i));
             pos = snprintf(&footer[rpos], w_len, "%s", "^^");
         }
         else
         {
-            if (chain->args.channel_mask & (1UL << i))
+            if (chain->args.channel_mask & (1ULL << i))
             {
                 pos = snprintf(&footer[rpos], w_len, "%02ld", i + 1);
             }
@@ -719,13 +721,13 @@ static size_t find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_buf
 
     for (s_ch = 0; s_ch < SDR_NUM_CHANNELS; s_ch++)
     {
-        if (chain->args.channel_mask & (1UL << s_ch))
+        if (chain->args.channel_mask & (1ULL << s_ch))
         {
             break;
         }
     }
 
-    log_assert(s_ch < 16);
+    log_assert(s_ch < SDR_NUM_CHANNELS);
 
     float rssi_max = average_power((*chan_bufs)[s_ch], ns);
     size_t max_i = s_ch;
@@ -734,7 +736,7 @@ static size_t find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_buf
     {
         // Only take into consideration the channels
         // enabled in mask
-        if (chain->args.channel_mask & (1UL << i))
+        if (chain->args.channel_mask & (1ULL << i))
         {
             float rssi = average_power((*chan_bufs)[i], ns);
             if (rssi > rssi_max)
@@ -768,7 +770,7 @@ int main(int argc, char *argv[])
         chain->args.squelch_level,
         chain->args.waterfall);
 
-    LOG(INFO, "audio lowpass: %s, channel mask: 0x%04X",
+    LOG(INFO, "audio lowpass: %s, channel mask: 0x%04lX",
         chain->args.lowpass ? "enabled" : "disabled",
         chain->args.channel_mask);
 

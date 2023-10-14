@@ -33,7 +33,7 @@ struct arguments
     float squelch_level;
     size_t waterfall;
     bool lowpass;
-    uint16_t channel_mask;
+    uint64_t channel_mask;
     lock_mode_e lock_mode;
 };
 
