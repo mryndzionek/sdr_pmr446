@@ -407,7 +407,7 @@ static void pll_execute(pll_t *pll, float const *xs, unsigned int nx)
 static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
                         size_t resamp_buf_size, size_t ctcss_buf_size)
 {
-    chain->dcblock = iirfilt_crcf_create_dc_blocker(0.0005);
+    chain->dcblock = iirfilt_crcf_create_dc_blocker(0.0005f);
     log_assert(chain->dcblock);
 
     chain->resampler = msresamp_crcf_create(((float)SDR_RESAMPLERATE) / SDR_SAMPLERATE, 60.0f);
@@ -431,7 +431,7 @@ static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
     chain->ctcss_lp_delay = wdelayf_create((HP_AUDIO_FILT_TAPS - 1) / 2);
     log_assert(chain->ctcss_filt);
 
-    chain->ctcss_dcblock = iirfilt_rrrf_create_dc_blocker(0.0005);
+    chain->ctcss_dcblock = iirfilt_rrrf_create_dc_blocker(0.0005f);
     log_assert(chain->ctcss_dcblock);
 
     chain->audio_filt = firfilt_rrrf_create((float *)lp_audio_taps, LP_AUDIO_FILT_TAPS);

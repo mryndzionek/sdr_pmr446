@@ -27,7 +27,7 @@ jobs:
         mkdir dependencies
         mkdir local
         cd dependencies
-        git clone -b v1.6.0 https://github.com/jgaeddert/liquid-dsp.git
+        git clone -b v1.7.0 https://github.com/jgaeddert/liquid-dsp.git
         cd liquid-dsp
         ./bootstrap.sh
         ./configure --prefix=$PWD/../../local
@@ -88,7 +88,7 @@ jobs:
         cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
         make
 
-    - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
+    - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
       with:
         name: binaries
         path: |
