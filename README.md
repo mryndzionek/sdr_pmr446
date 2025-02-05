@@ -19,6 +19,18 @@ work with other, supported by SoapySDR, receivers.
 
 Look at [build.yml](.github/workflows/build.yml) for details.
 
+## Running
+
+To run the provided `AppImage`:
+
+```sh
+./sdr_pmr446.AppImage -w 120 -g 25 -s -18
+```
+
+This will output a CLI waterfall:
+
+![screen](diagrams/screen.png)
+
 ## Other applications
 
  - `dsd_in` - simple [DSD](https://github.com/szechyjs/dsd)
