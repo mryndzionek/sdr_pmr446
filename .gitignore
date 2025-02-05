@@ -2,4 +2,5 @@ build/
 .vscode/
 dependencies/
 local/
-
+AppDir/
+*.AppImage

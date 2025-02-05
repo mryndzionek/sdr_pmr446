@@ -17,7 +17,7 @@ jobs:
     - name: Prepare
       run: |
         sudo apt-get update
-        sudo apt-get install libusb-1.0-0-dev libpulse-dev locate autogen
+        sudo apt-get install libusb-1.0-0-dev libpulse-dev locate autogen libfuse2
 
     - name: Checkout
       uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9
@@ -30,7 +30,7 @@ jobs:
         git clone -b v1.7.0 https://github.com/jgaeddert/liquid-dsp.git
         cd liquid-dsp
         ./bootstrap.sh
-        ./configure --prefix=$PWD/../../local
+        ./configure --prefix=$PWD/../../local --enable-simdoverride
         make
         make install
         cd ..
@@ -87,10 +87,12 @@ jobs:
         cd build
         cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
         make
+        cd ..
+        ./appimage.sh
 
     - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
       with:
-        name: binaries
+        name: appimage
         path: |
-          build/sdr_pmr446
+          sdr_pmr446.AppImage
 

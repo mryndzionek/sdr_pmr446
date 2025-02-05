@@ -459,7 +459,7 @@ static bool init_liquid(proc_chain_t *chain, size_t asgram_len,
     {
         chain->asgram = asgramcf_create(asgram_len);
         log_assert(chain->asgram);
-        asgramcf_set_scale(chain->asgram, -50.0f, 2.0f);
+        asgramcf_set_scale(chain->asgram, -40.0f, 2.0f);
     }
 
     return true;
@@ -545,11 +545,11 @@ static void error_cb(rtaudio_error_t err, const char *msg)
 static bool init_rtaudio(proc_chain_t *chain)
 {
     unsigned int bufferFrames = AUDIO_SAMPLERATE / 10;
-    const rtaudio_api_t api = rtaudio_compiled_api_by_name("pulse");
-    LOG(INFO, "RTAudio API: %s", rtaudio_api_name(api));
 
-    chain->dac = rtaudio_create(api);
+    chain->dac = rtaudio_create(RTAUDIO_API_UNSPECIFIED);
     log_assert(chain->dac);
+    const rtaudio_api_t api = rtaudio_current_api(chain->dac);
+    LOG(INFO, "RTAudio API: %s", rtaudio_api_name(api));
     int n = rtaudio_device_count(chain->dac);
 
     if (n == 0)
@@ -559,26 +559,25 @@ static bool init_rtaudio(proc_chain_t *chain)
     }
     else if (n == 1)
     {
-        LOG(ERROR, "There is %d audio device available", n);
-        return false;
+        LOG(INFO, "There is %d audio device available", n);
     }
     else
     {
         LOG(INFO, "There are %d audio devices available:", n);
     }
 
-    int dev = rtaudio_get_default_output_device(chain->dac);
-
+    const unsigned int def_id = rtaudio_get_default_output_device(chain->dac);
     for (int i = 0; i < n; i++)
     {
-        rtaudio_device_info_t info = rtaudio_get_device_info(chain->dac, i);
-        LOG(INFO, "\t\"%s\"%s", info.name, dev == i ? " (default)" : "");
+        unsigned int dev_id = rtaudio_get_device_id(chain->dac, i);
+        rtaudio_device_info_t info = rtaudio_get_device_info(chain->dac, dev_id);
+        LOG(INFO, "\t\"%s\"%s", info.name, def_id == dev_id ? " (default)" : "");
     }
 
     rtaudio_show_warnings(chain->dac, true);
 
     rtaudio_stream_parameters_t o_params = {
-        .device_id = rtaudio_get_default_output_device(chain->dac),
+        .device_id = def_id,
         .first_channel = 0,
         .num_channels = 1};
 
