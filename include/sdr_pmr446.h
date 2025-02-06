@@ -11,6 +11,7 @@
 #include <rtaudio/rtaudio_c.h>
 
 #define SDR_SAMPLERATE (1024000UL)
+#define CTCSS_NUM_FREQS (38U)
 
 typedef enum
 {
@@ -30,6 +31,7 @@ struct arguments
     float frequency;
     float gain;
     float audio_gain;
+    enum rtaudio_api audio_api;
     float squelch_level;
     size_t waterfall;
     bool lowpass;
@@ -37,17 +39,17 @@ struct arguments
     lock_mode_e lock_mode;
 };
 
-typedef struct
-{
-    iirfilt_rrrf out_filt;
-    iirfilt_rrrf lock_filt;
-    agc_rrrf agc;
-    float ref_sig;
-    float integral;
-    float phase;
-    float output;
-    bool locked;
-} pll_t;
+typedef struct {
+    float k[CTCSS_NUM_FREQS];
+    float coef[CTCSS_NUM_FREQS];
+    float u0[CTCSS_NUM_FREQS];
+    float u1[CTCSS_NUM_FREQS];
+    float power[CTCSS_NUM_FREQS];
+    float max_power;
+    int max_power_index;
+    size_t samp_processed;
+    bool tone_detected;
+} ctcss_detector_t;
 
 struct _proc_chain_t
 {
@@ -59,7 +61,6 @@ struct _proc_chain_t
     nco_crcf nco;
     firpfbch_crcf channelizer;
     freqdem fm_demod;
-    pll_t *pll;
     firfilt_rrrf ctcss_filt;
     wdelayf ctcss_lp_delay;
     iirfilt_rrrf ctcss_dcblock;
@@ -69,11 +70,11 @@ struct _proc_chain_t
 #else
     iirfilt_rrrf deemph;
 #endif
-    cbufferf ctcss_buf;
     cbuffercf resamp_buf;
     cbufferf audio_buf;
     asgramcf asgram;
     proc_chain_state_e state;
+    ctcss_detector_t *ctcss_detector;
     struct arguments args;
     int active_chan;
     float rssi;
