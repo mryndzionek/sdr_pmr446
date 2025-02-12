@@ -31,7 +31,7 @@
 
 #define SDR_DEFAULT_GAIN (42.0)
 #define SDR_DEFAULT_AUDIO_GAIN (4.0)
-#define SDR_DEFAULT_SQUELCH_LEVEL (-5.0)
+#define SDR_DEFAULT_SQUELCH_LEVEL (18.0)
 
 #define SDR_RESAMP_BUF_SIZE (39064)
 #define SDR_CHANNEL_BUF_SIZE (2441UL)
@@ -167,7 +167,7 @@ static struct argp_option options[] = {
      "The gain to set in the SDR receiver in [dB] (default: " xstr(
          SDR_DEFAULT_GAIN) ")"},
     {"squelch", 's', "SQ", 0,
-     "The squelch level in [dB] (default: " xstr(
+     "The relative squelch level in [dB] (default: " xstr(
          SDR_DEFAULT_SQUELCH_LEVEL) "dB)"},
     {"waterfall", 'w', "WT", 0,
      "If specified an ASCII waterfall is printed on the screen"},
@@ -329,12 +329,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 
 static float average_power(complex float const *data, size_t len) {
   float a = 0.0;
-  for (size_t k = 0; k < len; k++) {
-    a += cabsf(data[k]);
+  for (int i = 0; i < len; i++) {
+    a += cabsf(data[i]);
   }
-
-  a /= len;
-  return 20 * log10f(a);
+  return 20 * log10f(a / len);
 }
 
 static void ctcss_detector_reset(ctcss_detector_t *ctcss) {
@@ -667,35 +665,37 @@ static void refresh_footer(proc_chain_t *chain, char *const footer,
   }
 }
 
-static size_t find_max_rssi_channel(proc_chain_t *chain,
-                                    ch_buff_mat_t *chan_bufs, size_t ns,
-                                    float *max_rssi) {
-  size_t s_ch;
+static int find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_bufs,
+                                 size_t ns, float *max_rssi) {
+  int max_i = -1;
+  float rssi_max = 0.0f;
+  float rssi_avg = 0.0f;
+  int ch_en = 0;
 
-  for (s_ch = 0; s_ch < NUM_CHANNELS; s_ch++) {
-    if (chain->args.channel_mask & (1ULL << s_ch)) {
-      break;
-    }
-  }
-
-  log_assert(s_ch < NUM_CHANNELS);
-
-  float rssi_max = average_power((*chan_bufs)[s_ch], ns);
-  size_t max_i = s_ch;
-
-  for (size_t i = s_ch; i < NUM_CHANNELS; i++) {
+  for (size_t i = 0; i < NUM_CHANNELS; i++) {
     // Only take into consideration the channels
     // enabled in mask
     if (chain->args.channel_mask & (1ULL << i)) {
+      ++ch_en;
       float rssi = average_power((*chan_bufs)[i], ns);
-      if (rssi > rssi_max) {
+      rssi_avg += rssi;
+      if (max_i >= 0) {
+        if (rssi > rssi_max) {
+          rssi_max = rssi;
+          max_i = i;
+        }
+      } else {
         rssi_max = rssi;
         max_i = i;
       }
     }
   }
 
-  *max_rssi = rssi_max;
+  if (max_i >= 0) {
+    rssi_avg /= ch_en;
+    *max_rssi = rssi_max - rssi_avg;
+  }
+
   return max_i;
 }
 
@@ -713,7 +713,8 @@ int main(int argc, char *argv[]) {
   argp_parse(&argp, argc, argv, 0, 0, &chain->args);
 
   LOG(INFO,
-      "gain: %5.2f dB, audio_gain: %5.2f, squelch level: %5.2f dB, waterfall: "
+      "gain: %5.2f dB, audio_gain: %5.2f, relative squelch level: %5.2f dB, "
+      "waterfall: "
       "%ld",
       chain->args.gain, chain->args.audio_gain, chain->args.squelch_level,
       chain->args.waterfall);
@@ -841,10 +842,10 @@ int main(int argc, char *argv[]) {
       } break;
 
       case proc_tuned: {
+        float max_rssi;
+        int max_ch = find_max_rssi_channel(chain, &chan_bufs, ns, &max_rssi);
+        chain->rssi = max_rssi;
         if (chain->args.lock_mode == lock_mode_max) {
-          float max_rssi;
-          int max_ch = find_max_rssi_channel(chain, &chan_bufs, ns, &max_rssi);
-
           chain->rssi = max_rssi;
           if (chain->active_chan != max_ch) {
             if (chain->args.waterfall == 0) {
@@ -853,8 +854,6 @@ int main(int argc, char *argv[]) {
             }
             chain->active_chan = max_ch;
           }
-        } else {
-          chain->rssi = average_power(chan_bufs[chain->active_chan], ns);
         }
 
         if (chain->rssi < (chain->args.squelch_level - 5.0)) {
@@ -912,7 +911,7 @@ int main(int argc, char *argv[]) {
       asgramcf_write(chain->asgram, resamp_buf, ny);
       asgramcf_execute(chain->asgram, ascii, &maxval, &maxfreq);
 
-      printf(" > %s < pk%5.1fdB [%5.2f] [rssi: %5.1fdB]        \n", ascii,
+      printf(" > %s < pk%5.1fdB [%5.2f] [max SNR: %5.1fdB]        \n", ascii,
              maxval, maxfreq, chain->rssi);
       refresh_footer(chain, footer, chain->args.waterfall);
       printf("%s\r", footer);
