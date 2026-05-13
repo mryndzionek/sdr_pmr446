@@ -665,20 +665,47 @@ static void refresh_footer(proc_chain_t *chain, char *const footer,
   }
 }
 
+static float estimate_noise_floor(float *x, size_t nx)
+{
+  float noise_floor = 0.0f;
+  float xc[nx];
+
+  memcpy(xc, x, sizeof(float) * nx);
+
+  int comp(const void* a, const void* b) {
+    const float fa = *(const float*)a;
+    const float fb = *(const float*)b;
+
+    if (fa < fb) return -1;
+    if (fa > fb) return 1;
+    return 0;
+  }
+
+  qsort(xc, nx, sizeof(float), comp);
+
+  if((nx % 2) == 1)
+  {
+    noise_floor = xc[nx / 2];
+  } else {
+    noise_floor = (xc[(nx - 1) / 2] + xc[nx / 2]) / 2.0f;
+  }
+
+  return noise_floor;
+}
+
 static int find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_bufs,
                                  size_t ns, float *max_rssi) {
   int max_i = -1;
   float rssi_max = 0.0f;
-  float rssi_avg = 0.0f;
+  float rssi_arr[NUM_CHANNELS] = {0.0f};
   int ch_en = 0;
 
   for (size_t i = 0; i < NUM_CHANNELS; i++) {
     // Only take into consideration the channels
     // enabled in mask
     if (chain->args.channel_mask & (1ULL << i)) {
-      ++ch_en;
       float rssi = average_power((*chan_bufs)[i], ns);
-      rssi_avg += rssi;
+      rssi_arr[ch_en++] = rssi;
       if (max_i >= 0) {
         if (rssi > rssi_max) {
           rssi_max = rssi;
@@ -691,9 +718,10 @@ static int find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_bufs,
     }
   }
 
+  float noise_floor = estimate_noise_floor(rssi_arr, ch_en);
+
   if (max_i >= 0) {
-    rssi_avg /= ch_en;
-    *max_rssi = rssi_max - rssi_avg;
+    *max_rssi = rssi_max - noise_floor;
   }
 
   return max_i;
@@ -856,7 +884,7 @@ int main(int argc, char *argv[]) {
           }
         }
 
-        if (chain->rssi < (chain->args.squelch_level - 5.0)) {
+        if (chain->rssi < (chain->args.squelch_level * 0.8)) {
           if (chain->args.waterfall == 0) {
             LOG(INFO, "Detuned from channel %d", chain->active_chan + 1);
           }
@@ -908,6 +936,13 @@ int main(int argc, char *argv[]) {
     }
 
     if (chain->args.waterfall > 0) {
+      float mag[ny];
+      for(size_t i = 0; i < ny; i++)
+      {
+        mag[i] = cabsf(resamp_buf[i]);
+      }
+      const float nf = 20 * log10f(estimate_noise_floor(mag, ny));
+      asgramcf_set_scale(chain->asgram, nf - 3.0f, 2.0f);
       asgramcf_write(chain->asgram, resamp_buf, ny);
       asgramcf_execute(chain->asgram, ascii, &maxval, &maxfreq);
 
