@@ -693,18 +693,22 @@ static float estimate_noise_floor(float *x, size_t nx)
   return noise_floor;
 }
 
-static int find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_bufs,
-                                 size_t ns, float *max_rssi) {
+static int find_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_bufs,
+                                 size_t ns, float *max_rssi, bool max) {
   int max_i = -1;
   float rssi_max = 0.0f;
   float rssi_arr[NUM_CHANNELS] = {0.0f};
   int ch_en = 0;
+  int act_chan = -1;
 
   for (size_t i = 0; i < NUM_CHANNELS; i++) {
     // Only take into consideration the channels
     // enabled in mask
     if (chain->args.channel_mask & (1ULL << i)) {
       float rssi = average_power((*chan_bufs)[i], ns);
+      if (i == chain->active_chan) {
+        act_chan = ch_en;
+      }
       rssi_arr[ch_en++] = rssi;
       if (max_i >= 0) {
         if (rssi > rssi_max) {
@@ -720,11 +724,14 @@ static int find_max_rssi_channel(proc_chain_t *chain, ch_buff_mat_t *chan_bufs,
 
   float noise_floor = estimate_noise_floor(rssi_arr, ch_en);
 
-  if (max_i >= 0) {
+  if ((max) && (max_i >= 0)) {
     *max_rssi = rssi_max - noise_floor;
+    return max_i;
+  } else {
+    log_assert(act_chan >= 0);
+    *max_rssi = rssi_arr[act_chan] - noise_floor;
+    return -1;
   }
-
-  return max_i;
 }
 
 int main(int argc, char *argv[]) {
@@ -856,7 +863,7 @@ int main(int argc, char *argv[]) {
     switch (chain->state) {
       case proc_scanning: {
         float max_rssi;
-        int max_ch = find_max_rssi_channel(chain, &chan_bufs, ns, &max_rssi);
+        int max_ch = find_rssi_channel(chain, &chan_bufs, ns, &max_rssi, true);
 
         chain->rssi = max_rssi;
         if (chain->rssi > chain->args.squelch_level) {
@@ -871,22 +878,27 @@ int main(int argc, char *argv[]) {
 
       case proc_tuned: {
         float max_rssi;
-        int max_ch = find_max_rssi_channel(chain, &chan_bufs, ns, &max_rssi);
-        chain->rssi = max_rssi;
         if (chain->args.lock_mode == lock_mode_max) {
+          int max_ch = find_rssi_channel(chain, &chan_bufs, ns, &max_rssi, true);
           chain->rssi = max_rssi;
-          if (chain->active_chan != max_ch) {
-            if (chain->args.waterfall == 0) {
-              LOG(INFO, "Changed active channel from %d to %d",
-                  chain->active_chan + 1, max_ch + 1);
+          if (max_rssi > chain->args.squelch_level) {
+            if (chain->active_chan != max_ch) {
+              if (chain->args.waterfall == 0) {
+                LOG(INFO, "Changed active channel from %d to %d",
+                    chain->active_chan + 1, max_ch + 1);
+              }
+              chain->active_chan = max_ch;
+              chain->rssi = max_rssi;
             }
-            chain->active_chan = max_ch;
           }
+        } else {
+          find_rssi_channel(chain, &chan_bufs, ns, &max_rssi, false);
+          chain->rssi = max_rssi;
         }
 
         if (chain->rssi < (chain->args.squelch_level * 0.8)) {
           if (chain->args.waterfall == 0) {
-            LOG(INFO, "Detuned from channel %d", chain->active_chan + 1);
+            LOG(INFO, "Detuned from channel %d (RSSI: %4.2fdB)", chain->active_chan + 1, chain->rssi);
           }
           chain->active_chan = -1;
           chain->state = proc_scanning;
