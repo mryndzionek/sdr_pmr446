@@ -37,6 +37,7 @@ struct arguments
     bool lowpass;
     uint64_t channel_mask;
     lock_mode_e lock_mode;
+    bool denoiser;
 };
 
 typedef struct {

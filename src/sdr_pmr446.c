@@ -14,6 +14,7 @@
 
 #include "logging.h"
 #include "shared.h"
+#include "rnn_denoiser.h"
 
 #define MAX_CHANNELS (64)
 
@@ -153,7 +154,8 @@ static proc_chain_t g_chain = {
              .waterfall = 0,
              .lowpass = false,
              .channel_mask = UINT64_MAX,
-             .lock_mode = lock_mode_start}};
+             .lock_mode = lock_mode_start,
+             .denoiser = false}};
 
 static pthread_mutex_t lock;
 static bool exit_via_sig;
@@ -183,6 +185,8 @@ static struct argp_option options[] = {
      "search for one)"},
     {"lock-mode", 'p', "LM", 0,
      "Channel lock mode, 'start', or 'max' (default: 'start')"},
+    {"audio-denoiser", 'd', 0, 0,
+     "Audio output denoiser (default: 'off')"},
     {0}};
 
 static struct argp argp = {options, parse_opt, args_doc, doc};
@@ -310,6 +314,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
         argp_usage(state);
       }
       break;
+
+    case 'd':
+    arguments->denoiser = true;
+    break;
 
     case ARGP_KEY_ARG:
       if (state->arg_num >= 0) argp_usage(state);
@@ -757,6 +765,9 @@ int main(int argc, char *argv[]) {
   LOG(INFO, "audio lowpass: %s, channel mask: 0x%04lX",
       chain->args.lowpass ? "enabled" : "disabled", chain->args.channel_mask);
 
+  LOG(INFO, "audio denoiser: %s",
+      chain->args.denoiser ? "enabled" : "disabled");
+
   if (chain->args.channel_mask == 0) {
     LOG(ERROR, "No channels enabled in channel mask !");
     exit(EXIT_FAILURE);
@@ -819,6 +830,24 @@ int main(int argc, char *argv[]) {
   sigaction(SIGQUIT, &sigact, NULL);
   sigaction(SIGPIPE, &sigact, NULL);
   sigaction(SIGUSR1, &sigact, NULL);
+
+  cbufferf denoise_buf = cbufferf_create(AUDIO_SAMPLERATE / 3);
+  log_assert(denoise_buf);
+  complex float fft_in[2 * RNND_NFFT] = {0.0f};
+  complex float fft_in_w[2 * RNND_NFFT] = {0.0f};
+  complex float fft_buf[2 * RNND_NFFT] = {0.0f};
+  complex float fft_out_w[2 * RNND_NFFT] = {0.0f};
+  complex float fft_out[RNND_NFFT] = {0.0f};
+
+  fftplan fftp = fft_create_plan(2 * RNND_NFFT, fft_in_w, fft_buf, LIQUID_FFT_FORWARD,  0);
+  log_assert(fftp);
+  fftplan ifftp = fft_create_plan(2 * RNND_NFFT, fft_buf, fft_out_w, LIQUID_FFT_BACKWARD,  0);
+  log_assert(ifftp);
+  float fft_win[2 * RNND_NFFT];
+
+  for (uint16_t i = 0; i < 2 * RNND_NFFT; i++) {
+    fft_win[i] = 0.5 * (1 - cosf(2 * M_PI * i / (2 * RNND_NFFT)));
+  }
 
   while (!exit_via_sig) {
     read = SoapySDRDevice_readStream(chain->sdr, chain->rxStream, buffs,
@@ -940,10 +969,59 @@ int main(int argc, char *argv[]) {
         if (chain->args.lowpass) {
           firfilt_rrrf_execute_block(chain->audio_filt, tmp_buf2, ns, tmp_buf2);
         }
-        pthread_mutex_lock(&lock);
-        err = cbufferf_write(chain->audio_buf, tmp_buf2, ns);
-        log_assert(err == LIQUID_OK);
-        pthread_mutex_unlock(&lock);
+        if (chain->args.denoiser) {
+          err = cbufferf_write(denoise_buf, tmp_buf2, ns);
+          log_assert(err == LIQUID_OK);
+
+          const unsigned int s = cbufferf_size(denoise_buf);
+          for (size_t k = 0; k < s / (RNND_NFFT); k++) {
+            float* fft_p = NULL;
+            float out[RNND_NFFT];
+            float mags[RNND_NFFT];
+            float gains[RNND_NFFT];
+
+            err = cbufferf_read(denoise_buf, RNND_NFFT, &fft_p, &num_read);
+            log_assert(err == LIQUID_OK);
+            log_assert(num_read == RNND_NFFT);
+
+            for (size_t l = 0; l < RNND_NFFT; l++) {
+              fft_in[l] = fft_in[RNND_NFFT + l];
+              fft_in[RNND_NFFT + l] = fft_p[l];
+            }
+
+            err = cbufferf_release(denoise_buf, RNND_NFFT);
+            log_assert(err == LIQUID_OK);
+
+            for (size_t l = 0; l < 2 * RNND_NFFT; l++) {
+              fft_in_w[l] = fft_in[l] * fft_win[l];
+            }
+
+            fft_execute(fftp);
+            for (size_t l = 0; l < RNND_NFFT; l++) {
+              mags[l] = cabsf(fft_buf[l]);
+            }
+
+            rnn_denoiser_denoise(mags, gains);
+            for (size_t l = 0; l < RNND_NFFT; l++) {
+              fft_buf[l] *= gains[l];
+              fft_buf[2 * RNND_NFFT - 1 - l] *= gains[l];
+            }
+            fft_execute(ifftp);
+
+            for (size_t l = 0; l < RNND_NFFT; l++) {
+              out[l] = (fft_out[l] + fft_out_w[l]) / (2 * 2 * RNND_NFFT);
+              fft_out[l] = fft_out_w[RNND_NFFT + l];
+            }
+
+            pthread_mutex_lock(&lock);
+            err = cbufferf_write(chain->audio_buf, out, RNND_NFFT);
+            log_assert(err == LIQUID_OK);
+            pthread_mutex_unlock(&lock);
+          }
+        } else {
+          err = cbufferf_write(chain->audio_buf, tmp_buf2, ns);
+          log_assert(err == LIQUID_OK);
+        }
       }
     }
 
@@ -981,6 +1059,9 @@ int main(int argc, char *argv[]) {
   destroy_soapy(chain);
   destroy_liquid(chain);
   ctcss_detector_destroy(&chain->ctcss_detector);
+  fft_destroy_plan(fftp);
+  fft_destroy_plan(ifftp);
+  cbufferf_destroy(denoise_buf);
 
   pthread_mutex_destroy(&lock);
 

@@ -16,7 +16,7 @@ add_compile_options(-Wno-deprecated-declarations
                     -Wall -Werror -fPIC)
 add_compile_definitions(DLG_LOG_LEVEL=dlg_level_info)
 
-add_executable(sdr_pmr446 src/sdr_pmr446.c
+add_executable(sdr_pmr446 src/sdr_pmr446.c src/rnn_denoiser.cpp
                           ${SRCS})
 target_link_libraries(sdr_pmr446 ${LIBS})
 target_compile_definitions(sdr_pmr446 PUBLIC APP_SDR_PMR446)
