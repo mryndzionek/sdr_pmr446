@@ -186,7 +186,7 @@ static struct argp_option options[] = {
     {"lock-mode", 'p', "LM", 0,
      "Channel lock mode, 'start', or 'max' (default: 'start')"},
     {"audio-denoiser", 'd', 0, 0,
-     "Audio output denoiser (default: 'off')"},
+     "ML-based audio denoiser (default: 'off')"},
     {0}};
 
 static struct argp argp = {options, parse_opt, args_doc, doc};
